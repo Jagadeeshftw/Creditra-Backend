@@ -29,7 +29,7 @@ git checkout -b docs/backend-contributing
 
 - Prerequisites
 
-- Node.js 18+
+- Node.js 20+
 
 - npm (or Yarn)
 
@@ -166,36 +166,106 @@ To speed review and maintain quality:
 - Describe intent and edge cases in PR description
 
 # Commit & Branch Conventions
-Branch Naming
+
+## Branch Naming
 Use descriptive branch names:
-```bash
+```
 feature/<feature-name>
 fix/<short-description>
 docs/<documentation-area>
+chore/<task>
+refactor/<area>
 ```
 
-Commit Messages
-Use clear messages:
+## Commit Messages — Conventional Commits
 
-- feat: for new features
+Format: `<type>(<scope>): <imperative summary>` — 72 chars or less.
 
-- fix: for bug fixes
+| Type | When | Example |
+|---|---|---|
+| `feat` | New user-visible feature | `feat(risk): add ExternalApiRiskProvider` |
+| `fix` | Bug fix | `fix(reconciliation): retry critical mismatches via job queue` |
+| `docs` | Docs only | `docs(security): document HMAC verification` |
+| `refactor` | Code change with no behavior change | `refactor(container): extract repository factory` |
+| `test` | Adding or modifying tests | `test(creditService): cover suspend → close transition` |
+| `perf` | Performance improvement | `perf(rateLimit): reuse window key map` |
+| `chore` | Tooling / housekeeping | `chore(deps): bump pino to 10.4.0` |
+| `build` | Build / CI changes | `build(ci): add Node 22 to matrix` |
 
-- docs: for documentation
+Body (optional) explains the *why*. Footer carries `Closes #N`, `Breaking change:`, or `Co-authored-by:` trailers.
 
-- test: for adding/updating tests
+Examples:
 
-- perf: for performance improvements
+```
+docs(api): document idempotency contract for webhook subscribers
+
+Subscribers must dedup by data.drawId since retries up to
+WEBHOOK_MAX_RETRIES + 1 are expected. Adds a "What subscribers must
+implement" subsection to docs/API.md §4.
+
+Closes #142
+```
+
+```
+fix(horizonListener): cap cursor-gap recovery at HORIZON_MAX_CURSOR_GAP
+
+Recovery loop could iterate indefinitely on a degraded Horizon endpoint.
+Now bounded; if recovery fails we skip ahead and let reconciliation catch
+the drift.
+```
+
+# Migration Discipline
+
+Schema changes are persistent and irreversible in production. They follow strict additive-only discipline:
+
+1. **One migration per PR.** Filename: `NNN_short_description.sql` under `migrations/`.
+2. **Additive by default.** Add columns nullable or with a default; backfill in a follow-up; tighten constraints only after a verified backfill.
+3. **No `DROP COLUMN` / `DROP TABLE`** without a deprecation cycle. Mark unused columns, stop reading them, deploy, *then* drop in a later release.
+4. **Indexes added `CREATE INDEX CONCURRENTLY`** when possible — large tables block writers otherwise.
+5. **Update [`src/db/validate-schema.ts`](./src/db/validate-schema.ts)** in the same PR so the boot-time validator knows about the new column / index. CI runs `npm run db:validate`.
+6. **Reflect in [`docs/data-model.md`](./docs/data-model.md)** and in `src/openapi.yaml` if the change affects request/response shapes.
+7. **Document any data migration** (backfill SQL or script) inline in the migration file or in `docs/`.
+
+# Pull Request Checklist
+
+Before requesting review, confirm:
+
+- [ ] Branch rebased on latest `main`
+- [ ] `npm test` passes locally
+- [ ] `npm run lint` passes
+- [ ] `npm run typecheck` passes
+- [ ] `npm run validate:spec` passes (if OpenAPI changed)
+- [ ] New code covered by tests; coverage ≥ 95 % on touched modules
+- [ ] No new secrets, credentials, or wallet pubkeys in code, tests, fixtures, or logs
+- [ ] All Zod schemas updated alongside any new route inputs
+- [ ] Migration added under `migrations/` and reflected in `validate-schema.ts` (if DB changed)
+- [ ] OpenAPI spec (`src/openapi.yaml`) updated (if API surface changed)
+- [ ] Conventional commit message
+- [ ] PR description explains *what* and *why*, lists noteworthy edge cases, links related issues
+
+# Review Checklist (for reviewers)
+
+When reviewing, look for:
+
+- **Correctness.** Does each new route path through validation → auth → rate-limit → handler? Are state transitions guarded?
+- **Envelope discipline.** Every response uses `ok()` / `fail()` from `src/utils/response.ts`?
+- **Idempotency.** Replays handled? Event ids stable? `idempotency_key` written where applicable?
+- **Time bounds.** Every outbound HTTP wrapped in `fetchWithTimeout` (or its equivalents)?
+- **Secrets.** Any log line that could leak a Stellar key or API key? Use `redactLogArgs` / `sanitizeWallet`.
+- **Tests.** Reproduces the change deterministically? No real network? Covers error path?
+- **Docs.** README / `docs/` updated if behavior, surface, or env vars changed?
+- **Reconcilable.** Does the change preserve the reconciliation invariant: DB state = chain state?
 
 # Performance & Maintenance Expectations
 
-- New endpoints should include performance benchmarks.
-
+- New endpoints should include performance benchmarks (k6 if user-facing, micro-benchmarks otherwise).
 - Regressions in performance must be justified in PR.
-
 - Periodically update dependencies, especially security patches.
 
+# Reporting Vulnerabilities
+
+Do not open a public issue. See [`SECURITY.md`](./SECURITY.md) for the responsible-disclosure channel.
 
 Thank you!
 We appreciate your efforts and contributions to making the Creditra Backend secure, tested, and well-documented. If you have any questions, drop a comment on the related issue.
-Happy coding! 
+Happy coding!
