@@ -1,3 +1,21 @@
+/**
+ * Composition root for the backend.
+ *
+ * `Container` is a lazy singleton that wires up the dependency graph:
+ * - selects a {@link CreditLineRepository} implementation based on
+ *   `DATABASE_URL` and `NODE_ENV` (Postgres in production, in-memory
+ *   everywhere else),
+ * - constructs the service layer that route handlers depend on,
+ * - instantiates the Soroban client and the reconciliation pipeline,
+ * - exposes a graceful {@link Container.shutdown} method that the boot
+ *   harness invokes on `SIGTERM` / `SIGINT`.
+ *
+ * Tests bypass env-var gymnastics by calling {@link Container.setRepositories}
+ * with stubs, or by reaching into the container via `getInstance()` after
+ * setting `NODE_ENV=test`.
+ *
+ * See `docs/ARCHITECTURE.md` §1 (Wiring) for the boot order.
+ */
 import { type CreditLineRepository } from "../repositories/interfaces/CreditLineRepository.js";
 import { type RiskEvaluationRepository } from "../repositories/interfaces/RiskEvaluationRepository.js";
 import { type TransactionRepository } from "../repositories/interfaces/TransactionRepository.js";

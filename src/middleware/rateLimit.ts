@@ -1,3 +1,23 @@
+/**
+ * In-process, fixed-window rate limiter.
+ *
+ * Each request is bucketed by a caller-supplied key (IP, API key, or a
+ * composite) for the duration of `windowMs`. Once a bucket exceeds
+ * `maxRequests` the middleware returns `429` with `Retry-After` and the
+ * `{ data, error, retryAfter }` envelope.
+ *
+ * Every response (allowed or denied) carries the standard headers:
+ * - `X-RateLimit-Limit`
+ * - `X-RateLimit-Remaining`
+ * - `X-RateLimit-Reset` (epoch seconds)
+ *
+ * The store is a `Map` and therefore single-process. A horizontally scaled
+ * deployment should swap the storage for Redis without touching the
+ * middleware's public surface — the {@link RateLimitOptions} contract and
+ * the two ready-made key generators are intentionally storage-agnostic.
+ *
+ * See `docs/SECURITY.md` §5 for the operational tuning guide.
+ */
 import type { Request, Response, NextFunction } from 'express';
 
 interface RateLimitEntry {
