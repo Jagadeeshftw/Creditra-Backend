@@ -100,6 +100,11 @@ export interface PaginatedTransactions {
   totalPages: number;
 }
 
+/**
+ * Thrown when a state-changing action is rejected because the credit line is
+ * not in a status that allows the transition (e.g. closing an already-closed
+ * line). Mapped to HTTP `409 Conflict` by `routes/credit.ts`.
+ */
 export class InvalidTransitionError extends Error {
   constructor(
     public readonly currentStatus: CreditLineStatus,
@@ -110,6 +115,10 @@ export class InvalidTransitionError extends Error {
   }
 }
 
+/**
+ * Thrown when an operation targets an id that does not exist.
+ * Mapped to HTTP `404 Not Found` by `routes/credit.ts`.
+ */
 export class CreditLineNotFoundError extends Error {
   constructor(public readonly id: string) {
     super(`Credit line "${id}" not found.`);
