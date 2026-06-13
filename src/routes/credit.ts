@@ -51,6 +51,17 @@ const container = Container.getInstance();
 
 const VALID_TRANSACTION_TYPES = Object.values(TransactionType);
 
+/**
+ * Maps a thrown service-layer error to an HTTP status + envelope.
+ *
+ * - {@link CreditLineNotFoundError} → 404
+ * - {@link InvalidTransitionError}  → 409
+ * - anything else                   → 500 with the error message
+ *
+ * Keeping this in one place means every credit-line endpoint produces a
+ * consistent error envelope without each handler reimplementing the
+ * mapping.
+ */
 function handleServiceError(err: unknown, res: Response): void {
   if (err instanceof CreditLineNotFoundError) {
     fail(res, err.message, 404);
