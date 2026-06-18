@@ -81,6 +81,10 @@ Get reconciliation worker status (admin only).
 
 The reconciliation service compares the following fields:
 
+Records are paired by trimmed borrower wallet address. If either the database
+or on-chain source returns duplicate rows for the same borrower wallet, the pass
+records an error and stops instead of overwriting one row with another.
+
 | Field | Severity | Description |
 |-------|----------|-------------|
 | existence | critical | Record exists in one system but not the other |
@@ -134,7 +138,7 @@ To integrate with actual Soroban contracts:
 - API endpoints require admin authentication (X-API-Key)
 - Soroban RPC calls should use read-only operations
 - No private keys are stored or used (read-only reconciliation)
-- Failed jobs are logged but do not expose sensitive data
+- Failed jobs redact Stellar public keys and secret seeds before logging
 - Consider rate limiting for manual trigger endpoint
 
 ## Testing

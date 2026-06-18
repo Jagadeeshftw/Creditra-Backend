@@ -7,6 +7,7 @@
 
 import type { CreditLineRepository } from '../repositories/interfaces/CreditLineRepository.js';
 import type { JobQueue } from './jobQueue.js';
+import { sanitizeJsonForStellarDiagnostics, sanitizeStellarDiagnostic } from './stellarDiagnostics.js';
 
 export interface OnChainCreditRecord {
   /** Contract-level credit line identifier */
@@ -83,15 +84,33 @@ export class ReconciliationService {
       // Fetch all credit records from on-chain contract
       const chainRecords = await this.sorobanClient.fetchAllCreditRecords();
 
-      // Create lookup maps
-      const dbMap = new Map(dbCreditLines.map(cl => [cl.id, cl]));
-      const chainMap = new Map(chainRecords.map(cr => [cr.id, cr]));
-
       result.totalChecked = Math.max(dbCreditLines.length, chainRecords.length);
+
+      const duplicateDbWallets = findDuplicateWallets(dbCreditLines.map(cl => cl.walletAddress));
+      const duplicateChainWallets = findDuplicateWallets(chainRecords.map(cr => cr.walletAddress));
+      for (const walletAddress of duplicateDbWallets) {
+        result.errors.push(`Duplicate database credit lines for borrower wallet ${walletAddress}`);
+      }
+      for (const walletAddress of duplicateChainWallets) {
+        result.errors.push(`Duplicate on-chain credit records for borrower wallet ${walletAddress}`);
+      }
+
+      if (result.errors.length > 0) {
+        console.error(
+          '[ReconciliationService] Reconciliation failed:',
+          sanitizeJsonForStellarDiagnostics(result.errors)
+        );
+        return result;
+      }
+
+      // The credit contract enumerates stable numeric ids, while the backend DB
+      // owns UUID credit-line ids. Borrower wallet address is the shared natural key.
+      const dbMap = new Map(dbCreditLines.map(cl => [walletKey(cl.walletAddress), cl]));
+      const chainMap = new Map(chainRecords.map(cr => [walletKey(cr.walletAddress), cr]));
 
       // Check for records in DB but not on chain
       for (const dbLine of dbCreditLines) {
-        const chainRecord = chainMap.get(dbLine.id);
+        const chainRecord = chainMap.get(walletKey(dbLine.walletAddress));
         
         if (!chainRecord) {
           result.mismatches.push({
@@ -111,7 +130,7 @@ export class ReconciliationService {
 
       // Check for records on chain but not in DB
       for (const chainRecord of chainRecords) {
-        if (!dbMap.has(chainRecord.id)) {
+        if (!dbMap.has(walletKey(chainRecord.walletAddress))) {
           result.mismatches.push({
             creditLineId: chainRecord.id,
             walletAddress: chainRecord.walletAddress,
@@ -127,7 +146,7 @@ export class ReconciliationService {
       if (result.mismatches.length > 0) {
         console.error(
           `[ReconciliationService] Found ${result.mismatches.length} mismatches:`,
-          JSON.stringify(result.mismatches, null, 2)
+          sanitizeJsonForStellarDiagnostics(result.mismatches)
         );
       } else {
         console.log(
@@ -136,9 +155,9 @@ export class ReconciliationService {
       }
 
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
+      const errorMessage = sanitizeStellarDiagnostic(error);
       result.errors.push(errorMessage);
-      console.error('[ReconciliationService] Reconciliation failed:', error);
+      console.error('[ReconciliationService] Reconciliation failed:', errorMessage);
     }
 
     return result;
@@ -209,4 +228,23 @@ export class ReconciliationService {
       });
     }
   }
+}
+
+function walletKey(walletAddress: string): string {
+  return walletAddress.trim();
+}
+
+function findDuplicateWallets(walletAddresses: string[]): string[] {
+  const seen = new Set<string>();
+  const duplicates = new Set<string>();
+
+  for (const walletAddress of walletAddresses) {
+    const key = walletKey(walletAddress);
+    if (seen.has(key)) {
+      duplicates.add(key);
+    }
+    seen.add(key);
+  }
+
+  return Array.from(duplicates);
 }

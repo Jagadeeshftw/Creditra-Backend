@@ -5,6 +5,8 @@ import type { CreditLine } from '../../models/CreditLine.js';
 import { CreditLineStatus } from '../../models/CreditLine.js';
 import { InMemoryJobQueue } from '../jobQueue.js';
 
+const TEST_PUBLIC_KEY = `G${'A'.repeat(55)}`;
+
 // Mock implementations
 class MockCreditLineRepository implements Partial<CreditLineRepository> {
   private creditLines: CreditLine[] = [];
@@ -66,7 +68,7 @@ describe('ReconciliationService', () => {
       };
 
       const chainRecord: OnChainCreditRecord = {
-        id: 'cl-1',
+        id: '7',
         walletAddress: 'GTEST123',
         creditLimit: '10000.00',
         availableCredit: '10000.00',
@@ -82,6 +84,36 @@ describe('ReconciliationService', () => {
       expect(result.mismatches).toHaveLength(0);
       expect(result.totalChecked).toBe(1);
       expect(result.errors).toHaveLength(0);
+    });
+
+    it('matches records by borrower wallet instead of mismatching DB UUIDs with contract ids', async () => {
+      const creditLine: CreditLine = {
+        id: '7e5f5b84-e325-4a27-bf2a-241a2f12fd66',
+        walletAddress: 'GTEST123',
+        creditLimit: '10000.00',
+        availableCredit: '7500.00',
+        interestRateBps: 500,
+        status: CreditLineStatus.ACTIVE,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+
+      const chainRecord: OnChainCreditRecord = {
+        id: '0',
+        walletAddress: 'GTEST123',
+        creditLimit: '10000.00',
+        availableCredit: '7500.00',
+        interestRateBps: 500,
+        status: 'active',
+      };
+
+      mockRepo.setCreditLines([creditLine]);
+      mockClient.setRecords([chainRecord]);
+
+      const result = await service.reconcile();
+
+      expect(result.mismatches).toEqual([]);
+      expect(result.errors).toEqual([]);
     });
 
     it('detects credit limit mismatch', async () => {
@@ -121,7 +153,7 @@ describe('ReconciliationService', () => {
       });
     });
 
-    it('detects wallet address mismatch', async () => {
+    it('treats different borrower wallets as existence drift', async () => {
       const creditLine: CreditLine = {
         id: 'cl-1',
         walletAddress: 'GTEST123',
@@ -148,9 +180,86 @@ describe('ReconciliationService', () => {
 
       const result = await service.reconcile();
 
-      expect(result.mismatches).toHaveLength(1);
-      expect(result.mismatches[0]?.severity).toBe('critical');
-      expect(result.mismatches[0]?.field).toBe('walletAddress');
+      expect(result.mismatches).toEqual([
+        expect.objectContaining({
+          creditLineId: 'cl-1',
+          walletAddress: 'GTEST123',
+          field: 'existence',
+          dbValue: 'exists',
+          chainValue: 'missing',
+          severity: 'critical',
+        }),
+        expect.objectContaining({
+          creditLineId: 'cl-1',
+          walletAddress: 'GTEST456',
+          field: 'existence',
+          dbValue: 'missing',
+          chainValue: 'exists',
+          severity: 'critical',
+        }),
+      ]);
+    });
+
+    it('reports duplicate database borrower wallets instead of overwriting rows', async () => {
+      const duplicateLines: CreditLine[] = [
+        {
+          id: 'cl-1',
+          walletAddress: 'GTEST123',
+          creditLimit: '10000.00',
+          availableCredit: '10000.00',
+          interestRateBps: 500,
+          status: CreditLineStatus.ACTIVE,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+        {
+          id: 'cl-2',
+          walletAddress: 'GTEST123',
+          creditLimit: '5000.00',
+          availableCredit: '5000.00',
+          interestRateBps: 300,
+          status: CreditLineStatus.ACTIVE,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+      ];
+
+      mockRepo.setCreditLines(duplicateLines);
+      mockClient.setRecords([]);
+
+      const result = await service.reconcile();
+
+      expect(result.totalChecked).toBe(2);
+      expect(result.errors).toEqual(['Duplicate database credit lines for borrower wallet GTEST123']);
+      expect(result.mismatches).toEqual([]);
+    });
+
+    it('reports duplicate on-chain borrower wallets instead of overwriting records', async () => {
+      mockRepo.setCreditLines([]);
+      mockClient.setRecords([
+        {
+          id: '0',
+          walletAddress: 'GTEST123',
+          creditLimit: '10000.00',
+          availableCredit: '10000.00',
+          interestRateBps: 500,
+          status: 'active',
+        },
+        {
+          id: '1',
+          walletAddress: 'GTEST123',
+          creditLimit: '5000.00',
+          availableCredit: '5000.00',
+          interestRateBps: 300,
+          status: 'active',
+        },
+      ]);
+
+      const result = await service.reconcile();
+
+      expect(result.totalChecked).toBe(2);
+      expect(result.errors).toEqual(['Duplicate on-chain credit records for borrower wallet GTEST123']);
+      expect(result.mismatches).toEqual([]);
     });
 
     it('detects available credit mismatch with warning severity', async () => {
@@ -406,6 +515,28 @@ describe('ReconciliationService', () => {
 
       expect(result.errors).toHaveLength(1);
       expect(result.errors[0]).toContain('RPC connection failed');
+      expect(result.mismatches).toHaveLength(0);
+    });
+
+    it('captures reconciliation failures with Stellar keys redacted', async () => {
+      const errorClient = {
+        async fetchAllCreditRecords(): Promise<OnChainCreditRecord[]> {
+          throw new Error(`RPC connection failed for ${TEST_PUBLIC_KEY}`);
+        },
+      };
+
+      const errorService = new ReconciliationService(
+        mockRepo as CreditLineRepository,
+        errorClient,
+        jobQueue
+      );
+
+      const result = await errorService.reconcile();
+
+      expect(result.errors).toEqual([
+        expect.stringContaining('Error: RPC connection failed for [REDACTED_STELLAR_PUBLIC_KEY]'),
+      ]);
+      expect(result.errors[0]).not.toContain(TEST_PUBLIC_KEY);
       expect(result.mismatches).toHaveLength(0);
     });
 
