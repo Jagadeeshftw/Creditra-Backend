@@ -47,7 +47,7 @@ flowchart TB
 Domain rules, in isolation, no I/O:
 
 - `src/utils/__tests__/` — `fetchWithTimeout`, `httpStatus`, `numbers`, `objects`, `result`, `strings`, `time`, `constants`.
-- `src/services/__tests__/` — `CreditLineService`, `RiskEvaluationService`, `sorobanClient`, `sorobanRpcClient`, `drawWebhookService`.
+- `src/services/__tests__/` — `CreditLineService`, `RiskEvaluationService`, `reconciliationService`, `sorobanClient`, `sorobanRpcClient`, `drawWebhookService`.
 - `src/repositories/memory/__tests__/` — In-memory implementations of all repositories.
 - `src/repositories/postgres/__tests__/` — Postgres CreditLine repository with a stub `DbClient`.
 - `src/services/providers/__tests__/` — `RulesEngineRiskProvider`, `StaticRiskProvider`, `ExternalApiRiskProvider`, `providerFactory`.

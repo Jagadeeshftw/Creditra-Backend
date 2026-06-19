@@ -3,6 +3,7 @@ import { ReconciliationService, type OnChainCreditRecord, type SorobanRpcClient 
 import type { CreditLineRepository } from '../../repositories/interfaces/CreditLineRepository.js';
 import type { CreditLine } from '../../models/CreditLine.js';
 import { CreditLineStatus } from '../../models/CreditLine.js';
+import { InMemoryCreditLineRepository } from '../../repositories/memory/InMemoryCreditLineRepository.js';
 import { InMemoryJobQueue } from '../jobQueue.js';
 
 // Mock implementations
@@ -397,6 +398,108 @@ describe('ReconciliationService', () => {
       expect(result.errors).toHaveLength(1);
       expect(result.errors[0]).toContain('RPC connection failed');
       expect(result.mismatches).toHaveLength(0);
+    });
+
+    it('flags DB-only and chain-only records as critical existence mismatches using the in-memory repository', async () => {
+      const directRepo = new InMemoryCreditLineRepository();
+      const dbLine = await directRepo.create({
+        walletAddress: 'GDBONLY123',
+        creditLimit: '1000.00',
+        interestRateBps: 250,
+      });
+      const chainOnlyRecord: OnChainCreditRecord = {
+        id: 'cl-chain-only',
+        walletAddress: 'GCHAINONLY456',
+        creditLimit: '2000.00',
+        availableCredit: '2000.00',
+        interestRateBps: 300,
+        status: 'active',
+      };
+
+      const chainClient = {
+        fetchAllCreditRecords: vi.fn().mockResolvedValue([chainOnlyRecord]),
+      } as unknown as SorobanRpcClient;
+
+      const directService = new ReconciliationService(
+        directRepo,
+        chainClient,
+        jobQueue,
+      );
+
+      const result = await directService.reconcile();
+
+      expect(result.errors).toHaveLength(0);
+      expect(result.mismatches).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          creditLineId: dbLine.id,
+          field: 'existence',
+          dbValue: 'exists',
+          chainValue: 'missing',
+          severity: 'critical',
+        }),
+        expect.objectContaining({
+          creditLineId: chainOnlyRecord.id,
+          field: 'existence',
+          dbValue: 'missing',
+          chainValue: 'exists',
+          severity: 'critical',
+        }),
+      ]));
+    });
+
+    it('classifies each comparable field with the expected severity', async () => {
+      const directRepo = new InMemoryCreditLineRepository();
+      const dbLine = await directRepo.create({
+        walletAddress: 'GTEST123',
+        creditLimit: '10000.00',
+        interestRateBps: 500,
+      });
+      const chainRecord: OnChainCreditRecord = {
+        id: dbLine.id,
+        walletAddress: 'GTEST456',
+        creditLimit: '15000.00',
+        availableCredit: '9000.00',
+        interestRateBps: 600,
+        status: 'suspended',
+      };
+
+      const fieldClient = {
+        fetchAllCreditRecords: vi.fn().mockResolvedValue([chainRecord]),
+      } as unknown as SorobanRpcClient;
+
+      const directService = new ReconciliationService(
+        directRepo,
+        fieldClient,
+        jobQueue,
+      );
+
+      const result = await directService.reconcile();
+      const mismatchesByField = new Map(result.mismatches.map((mismatch) => [mismatch.field, mismatch]));
+
+      expect(result.errors).toHaveLength(0);
+      expect(mismatchesByField.get('walletAddress')).toMatchObject({ severity: 'critical' });
+      expect(mismatchesByField.get('creditLimit')).toMatchObject({ severity: 'critical' });
+      expect(mismatchesByField.get('availableCredit')).toMatchObject({ severity: 'warning' });
+      expect(mismatchesByField.get('interestRateBps')).toMatchObject({ severity: 'warning' });
+      expect(mismatchesByField.get('status')).toMatchObject({ severity: 'critical' });
+    });
+
+    it('captures client failures in errors without throwing when using the in-memory repository', async () => {
+      const directRepo = new InMemoryCreditLineRepository();
+      const failingClient = {
+        fetchAllCreditRecords: vi.fn().mockRejectedValue(new Error('RPC connection failed')),
+      } as unknown as SorobanRpcClient;
+
+      const directService = new ReconciliationService(
+        directRepo,
+        failingClient,
+        jobQueue,
+      );
+
+      await expect(directService.reconcile()).resolves.toMatchObject({
+        errors: [expect.stringContaining('RPC connection failed')],
+        mismatches: [],
+      });
     });
 
     it('sets timestamp on result', async () => {
