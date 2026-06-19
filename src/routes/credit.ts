@@ -154,7 +154,7 @@ creditRouter.put('/lines/:id', async (req, res) => {
     }
     return ok(res, creditLine);
   } catch (error) {
-    return fail(res, error, 400);
+    return fail(res, error instanceof Error ? error : undefined, 400);
   }
 });
 
