@@ -62,7 +62,7 @@
 **File**: `src/services/__tests__/sorobanClient.test.ts`
 
 **MockSorobanClient:**
-- ✅ Returns empty array in mock implementation
+- ✅ Returns empty array in local/test fallback mode
 - ✅ Logs mock fallback selection without exposing Stellar keys
 - ✅ Completes without throwing
 

@@ -1,12 +1,15 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { StrKey } from '@stellar/stellar-sdk';
 import { ReconciliationService, type OnChainCreditRecord, type SorobanRpcClient } from '../reconciliationService.js';
 import type { CreditLineRepository } from '../../repositories/interfaces/CreditLineRepository.js';
 import type { CreditLine } from '../../models/CreditLine.js';
 import { CreditLineStatus } from '../../models/CreditLine.js';
 import { InMemoryJobQueue } from '../jobQueue.js';
-import { SorobanCreditRecordDecodeError } from '../sorobanClient.js';
+import { SorobanCreditRecordDecodeError, StellarSorobanClient } from '../sorobanClient.js';
 
 const TEST_PUBLIC_KEY = `G${'A'.repeat(55)}`;
+const TEST_SECRET_KEY = `S${'C'.repeat(55)}`;
+const TEST_CONTRACT_ID = StrKey.encodeContract(Buffer.alloc(32, 1));
 
 // Mock implementations
 class MockCreditLineRepository implements Partial<CreditLineRepository> {
@@ -16,8 +19,8 @@ class MockCreditLineRepository implements Partial<CreditLineRepository> {
     this.creditLines = lines;
   }
 
-  async findAll(): Promise<CreditLine[]> {
-    return this.creditLines;
+  async findAll(offset = 0, limit = this.creditLines.length): Promise<CreditLine[]> {
+    return this.creditLines.slice(offset, offset + limit);
   }
 }
 
@@ -31,6 +34,25 @@ class MockSorobanClient implements SorobanRpcClient {
   async fetchAllCreditRecords(): Promise<OnChainCreditRecord[]> {
     return this.records;
   }
+}
+
+function makeCreditLine(overrides: Partial<CreditLine> = {}): CreditLine {
+  return {
+    id: 'cl-1',
+    walletAddress: 'GTEST123',
+    creditLimit: '10000.00',
+    availableCredit: '10000.00',
+    utilized: '0',
+    interestRateBps: 500,
+    status: CreditLineStatus.ACTIVE,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+    ...overrides,
+  };
+}
+
+function jsonResponse(body: unknown): Response {
+  return new Response(JSON.stringify(body), { status: 200, statusText: 'OK' });
 }
 
 describe('ReconciliationService', () => {
@@ -204,28 +226,14 @@ describe('ReconciliationService', () => {
 
     it('reports duplicate database borrower wallets instead of overwriting rows', async () => {
       const duplicateLines: CreditLine[] = [
-        {
-          id: 'cl-1',
-          walletAddress: 'GTEST123',
-          creditLimit: '10000.00',
-          availableCredit: '10000.00',
-          utilized: '0.00',
-          interestRateBps: 500,
-          status: CreditLineStatus.ACTIVE,
-          createdAt: new Date(),
-          updatedAt: new Date(),
-        },
-        {
+        makeCreditLine({ id: 'cl-1', walletAddress: 'GTEST123' }),
+        makeCreditLine({
           id: 'cl-2',
           walletAddress: 'GTEST123',
           creditLimit: '5000.00',
           availableCredit: '5000.00',
-          utilized: '0.00',
           interestRateBps: 300,
-          status: CreditLineStatus.ACTIVE,
-          createdAt: new Date(),
-          updatedAt: new Date(),
-        },
+        }),
       ];
 
       mockRepo.setCreditLines(duplicateLines);
@@ -236,6 +244,21 @@ describe('ReconciliationService', () => {
       expect(result.totalChecked).toBe(2);
       expect(result.errors).toEqual(['Duplicate database credit lines for borrower wallet GTEST123']);
       expect(result.mismatches).toEqual([]);
+    });
+
+    it('redacts real-looking duplicate database borrower wallet errors before returning them', async () => {
+      mockRepo.setCreditLines([
+        makeCreditLine({ id: 'cl-1', walletAddress: TEST_PUBLIC_KEY }),
+        makeCreditLine({ id: 'cl-2', walletAddress: TEST_PUBLIC_KEY }),
+      ]);
+      mockClient.setRecords([]);
+
+      const result = await service.reconcile();
+
+      expect(result.errors).toEqual([
+        'Duplicate database credit lines for borrower wallet [REDACTED_STELLAR_PUBLIC_KEY]',
+      ]);
+      expect(JSON.stringify(result.errors)).not.toContain(TEST_PUBLIC_KEY);
     });
 
     it('reports duplicate on-chain borrower wallets instead of overwriting records', async () => {
@@ -263,6 +286,107 @@ describe('ReconciliationService', () => {
 
       expect(result.totalChecked).toBe(2);
       expect(result.errors).toEqual(['Duplicate on-chain credit records for borrower wallet GTEST123']);
+      expect(result.mismatches).toEqual([]);
+    });
+
+    it('redacts real-looking duplicate on-chain borrower wallet errors before returning them', async () => {
+      mockRepo.setCreditLines([]);
+      mockClient.setRecords([
+        {
+          id: '0',
+          walletAddress: TEST_PUBLIC_KEY,
+          creditLimit: '10000.00',
+          availableCredit: '10000.00',
+          interestRateBps: 500,
+          status: 'active',
+        },
+        {
+          id: '1',
+          walletAddress: TEST_PUBLIC_KEY,
+          creditLimit: '5000.00',
+          availableCredit: '5000.00',
+          interestRateBps: 300,
+          status: 'active',
+        },
+      ]);
+
+      const result = await service.reconcile();
+
+      expect(result.errors).toEqual([
+        'Duplicate on-chain credit records for borrower wallet [REDACTED_STELLAR_PUBLIC_KEY]',
+      ]);
+      expect(JSON.stringify(result.errors)).not.toContain(TEST_PUBLIC_KEY);
+    });
+
+    it('matches borrower wallets after trimming without existence drift', async () => {
+      mockRepo.setCreditLines([makeCreditLine({ walletAddress: ` ${TEST_PUBLIC_KEY} ` })]);
+      mockClient.setRecords([
+        {
+          id: '0',
+          walletAddress: TEST_PUBLIC_KEY,
+          creditLimit: '10000.00',
+          availableCredit: '10000.00',
+          interestRateBps: 500,
+          status: 'active',
+        },
+      ]);
+
+      const result = await service.reconcile();
+
+      expect(result.errors).toEqual([]);
+      expect(result.mismatches).toEqual([
+        expect.objectContaining({
+          field: 'walletAddressFormatting',
+          severity: 'warning',
+          dbValue: ' [REDACTED_STELLAR_PUBLIC_KEY] ',
+          chainValue: '[REDACTED_STELLAR_PUBLIC_KEY]',
+        }),
+      ]);
+    });
+
+    it('treats wallet keys that differ only by whitespace as duplicates', async () => {
+      mockRepo.setCreditLines([
+        makeCreditLine({ id: 'cl-1', walletAddress: ` ${TEST_PUBLIC_KEY}` }),
+        makeCreditLine({ id: 'cl-2', walletAddress: `${TEST_PUBLIC_KEY} ` }),
+      ]);
+      mockClient.setRecords([]);
+
+      const result = await service.reconcile();
+
+      expect(result.errors).toEqual([
+        'Duplicate database credit lines for borrower wallet [REDACTED_STELLAR_PUBLIC_KEY]',
+      ]);
+      expect(result.mismatches).toEqual([]);
+    });
+
+    it('captures blank database borrower wallets as reconciliation errors', async () => {
+      mockRepo.setCreditLines([makeCreditLine({ walletAddress: '   ' })]);
+      mockClient.setRecords([]);
+
+      const result = await service.reconcile();
+
+      expect(result.errors).toHaveLength(1);
+      expect(result.errors[0]).toContain('Borrower wallet address cannot be empty');
+      expect(result.mismatches).toEqual([]);
+    });
+
+    it('captures blank on-chain borrower wallets as reconciliation errors', async () => {
+      mockRepo.setCreditLines([]);
+      mockClient.setRecords([
+        {
+          id: '0',
+          walletAddress: '   ',
+          creditLimit: '10000.00',
+          availableCredit: '10000.00',
+          interestRateBps: 500,
+          status: 'active',
+        },
+      ]);
+
+      const result = await service.reconcile();
+
+      expect(result.errors).toHaveLength(1);
+      expect(result.errors[0]).toContain('Borrower wallet address cannot be empty');
       expect(result.mismatches).toEqual([]);
     });
 
@@ -525,7 +649,7 @@ describe('ReconciliationService', () => {
     it('captures typed decode failures with Stellar keys redacted', async () => {
       const errorClient = {
         async fetchAllCreditRecords(): Promise<OnChainCreditRecord[]> {
-          throw new SorobanCreditRecordDecodeError(`bad XDR for ${TEST_PUBLIC_KEY}`);
+          throw new SorobanCreditRecordDecodeError(`bad XDR for ${TEST_PUBLIC_KEY} and ${TEST_SECRET_KEY}`);
         },
       };
 
@@ -538,10 +662,82 @@ describe('ReconciliationService', () => {
       const result = await errorService.reconcile();
 
       expect(result.errors).toEqual([
-        expect.stringContaining('SorobanCreditRecordDecodeError: bad XDR for [REDACTED_STELLAR_PUBLIC_KEY]'),
+        expect.stringContaining(
+          'SorobanCreditRecordDecodeError: bad XDR for [REDACTED_STELLAR_PUBLIC_KEY] and [REDACTED_STELLAR_SECRET_KEY]',
+        ),
       ]);
       expect(result.errors[0]).not.toContain(TEST_PUBLIC_KEY);
+      expect(result.errors[0]).not.toContain(TEST_SECRET_KEY);
       expect(result.mismatches).toHaveLength(0);
+    });
+
+    it('captures malformed XDR from the real Soroban client as a reconciliation error', async () => {
+      const fetchImpl = vi.fn().mockResolvedValue(
+        jsonResponse({
+          result: {
+            results: [{ xdr: 'not-valid-base64-xdr' }],
+          },
+        }),
+      );
+      const realSorobanClient = new StellarSorobanClient(
+        {
+          rpcUrl: 'https://soroban-testnet.stellar.org',
+          contractId: TEST_CONTRACT_ID,
+          networkPassphrase: 'Test SDF Network ; September 2015',
+        },
+        {
+          rpcUrl: 'https://soroban-testnet.stellar.org',
+          networkPassphrase: 'Test SDF Network ; September 2015',
+          timeoutMs: 50,
+          maxRetries: 0,
+          retryJitterMs: 0,
+        },
+        fetchImpl as unknown as typeof fetch,
+        { sleep: vi.fn().mockResolvedValue(undefined), random: () => 0 },
+      );
+      const realClientService = new ReconciliationService(
+        mockRepo as unknown as CreditLineRepository,
+        realSorobanClient,
+        jobQueue,
+      );
+
+      const result = await realClientService.reconcile();
+
+      expect(result.errors).toEqual([
+        expect.stringContaining('SorobanCreditRecordDecodeError: Could not decode enumerate_credit_lines ScVal'),
+      ]);
+      expect(result.mismatches).toEqual([]);
+    });
+
+    it('fetches database credit lines across multiple pages', async () => {
+      mockRepo.setCreditLines(
+        Array.from({ length: 1001 }, (_value, index) =>
+          makeCreditLine({ id: `cl-${index}`, walletAddress: `wallet-${index}` }),
+        ),
+      );
+      mockClient.setRecords([]);
+
+      const result = await service.reconcile();
+
+      expect(result.totalChecked).toBe(1001);
+      expect(result.errors).toEqual([]);
+      expect(result.mismatches).toHaveLength(1001);
+    });
+
+    it('fails loudly when database reconciliation exceeds the configured cap', async () => {
+      mockRepo.setCreditLines(
+        Array.from({ length: 10001 }, (_value, index) =>
+          makeCreditLine({ id: `cl-${index}`, walletAddress: `wallet-${index}` }),
+        ),
+      );
+      mockClient.setRecords([]);
+
+      const result = await service.reconcile();
+
+      expect(result.errors).toEqual([
+        expect.stringContaining('Reconciliation exceeded 10000 database credit lines'),
+      ]);
+      expect(result.mismatches).toEqual([]);
     });
 
     it('sets timestamp on result', async () => {

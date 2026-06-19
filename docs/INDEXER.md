@@ -28,7 +28,8 @@ flowchart LR
 |---|---|---|
 | `horizonListener` | Polls Horizon for contract events, emits to handlers | [`src/services/horizonListener.ts`](../src/services/horizonListener.ts) |
 | `drawWebhookService` | Receives confirmed events, fans them out to subscribers | [`src/services/drawWebhookService.ts`](../src/services/drawWebhookService.ts) |
-| `SorobanRpcClient` | Read-only on-chain queries and tx submission | [`src/services/sorobanRpcClient.ts`](../src/services/sorobanRpcClient.ts) |
+| `StellarSorobanClient` / `MockSorobanClient` | Reconciliation read path for enumerating Credit contract records | [`src/services/sorobanClient.ts`](../src/services/sorobanClient.ts) |
+| `SorobanRpcClient` legacy helper | Legacy/simulated generic RPC helper; not the reconciliation source of truth | [`src/services/sorobanRpcClient.ts`](../src/services/sorobanRpcClient.ts) |
 | `ReconciliationService` | Diffs DB vs chain, classifies mismatches | [`src/services/reconciliationService.ts`](../src/services/reconciliationService.ts) |
 | `ReconciliationWorker` | Schedules reconciliation jobs on an interval | [`src/services/reconciliationWorker.ts`](../src/services/reconciliationWorker.ts) |
 | `jobQueue` | In-process, at-least-once queue with retry & dead-letter | [`src/services/jobQueue.ts`](../src/services/jobQueue.ts) |
@@ -118,7 +119,7 @@ sequenceDiagram
 
     Cron->>JQ: enqueue("reconcile")
     JQ->>RCS: handler
-    RCS->>Repo: findAll(0, 10 000)
+    RCS->>Repo: findAll(offset, 1 000) until exhausted or cap exceeded
     RCS->>SRPC: fetchAllCreditRecords()
     par per credit line
       RCS->>RCS: compare fields
@@ -150,7 +151,8 @@ cursor.
 | Field | Severity if mismatched |
 |---|---|
 | Existence (DB has, chain doesn't, or vice versa) | **critical** |
-| `walletAddress` (identity drift) | **critical** |
+| `walletAddress` identity drift | **critical** |
+| `walletAddressFormatting` | **warning** |
 | `creditLimit` | **critical** |
 | `status` | **critical** |
 | `availableCredit` | **warning** |
@@ -167,7 +169,7 @@ cursor.
 
 - Critical mismatches → the worker's job handler throws. `jobQueue` retains the job for retry up to `maxAttempts` (default 3) with a visibility-timeout delay; after the budget is exhausted the job lands on the dead-letter list (`getFailedJobs()`).
 - Warnings → logged with redaction, no retry.
-- The reconciliation pass itself is stateless — there is no cursor to corrupt. Each invocation is a fresh comparison of the full set, capped at 10 000 lines per pull. For larger fleets the service is designed to be sharded by borrower or limit-band; see TODO in [`docs/reconciliation.md`](./reconciliation.md).
+- The reconciliation pass itself is stateless — there is no cursor to corrupt. Each invocation pages database rows in batches of 1 000 and fails loudly if the database side exceeds 10 000 records, so row 10 001 is never silently skipped. For larger fleets the service is designed to be sharded by borrower or limit-band; see TODO in [`docs/reconciliation.md`](./reconciliation.md).
 
 ---
 

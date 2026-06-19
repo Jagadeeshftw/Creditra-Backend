@@ -27,7 +27,7 @@ import { PostgresCreditLineRepository } from "../repositories/postgres/PostgresC
 import { CreditLineService } from "../services/CreditLineService.js";
 import { RiskEvaluationService } from "../services/RiskEvaluationService.js";
 import { createRiskProvider } from "../services/providers/providerFactory.js";
-import { ReconciliationService } from "../services/reconciliationService.js";
+import { ReconciliationService, type SorobanRpcClient } from "../services/reconciliationService.js";
 import { ReconciliationWorker } from "../services/reconciliationWorker.js";
 import { createSorobanClient, resolveSorobanConfig } from "../services/sorobanClient.js";
 import { defaultJobQueue } from "../services/jobQueue.js";
@@ -44,28 +44,30 @@ export class Container {
   private _transactionRepository!: TransactionRepository;
 
   // Services
-  private _creditLineService: CreditLineService;
-  private _riskEvaluationService: RiskEvaluationService;
-  private _reconciliationService: ReconciliationService;
-  private _reconciliationWorker: ReconciliationWorker;
+  private _creditLineService!: CreditLineService;
+  private _riskEvaluationService!: RiskEvaluationService;
+  private _reconciliationService!: ReconciliationService;
+  private _reconciliationWorker!: ReconciliationWorker;
+  private _sorobanClient!: SorobanRpcClient;
 
   private constructor() {
     // Initialize repositories based on environment
     this.initializeRepositories();
 
     // Initialize services
+    this._sorobanClient = createSorobanClient(resolveSorobanConfig());
+    this.rebuildServices();
+  }
+
+  private rebuildServices(): void {
     this._creditLineService = new CreditLineService(this._creditLineRepository);
     this._riskEvaluationService = new RiskEvaluationService(
       this._riskEvaluationRepository,
       createRiskProvider(),
     );
-    
-    // Initialize Soroban client and reconciliation services
-    const sorobanConfig = resolveSorobanConfig();
-    const sorobanClient = createSorobanClient(sorobanConfig);
     this._reconciliationService = new ReconciliationService(
       this._creditLineRepository,
-      sorobanClient,
+      this._sorobanClient,
       defaultJobQueue,
     );
     this._reconciliationWorker = new ReconciliationWorker(
@@ -135,24 +137,34 @@ export class Container {
     riskEvaluationRepository?: RiskEvaluationRepository;
     transactionRepository?: TransactionRepository;
   }): void {
+    let shouldRebuildServices = false;
+
     if (repositories.creditLineRepository) {
       this._creditLineRepository = repositories.creditLineRepository;
-      this._creditLineService = new CreditLineService(
-        this._creditLineRepository,
-      );
+      shouldRebuildServices = true;
     }
 
     if (repositories.riskEvaluationRepository) {
       this._riskEvaluationRepository = repositories.riskEvaluationRepository;
-      this._riskEvaluationService = new RiskEvaluationService(
-        this._riskEvaluationRepository,
-        createRiskProvider(),
-      );
+      shouldRebuildServices = true;
     }
 
     if (repositories.transactionRepository) {
       this._transactionRepository = repositories.transactionRepository;
     }
+
+    if (shouldRebuildServices) {
+      this.rebuildServices();
+    }
+  }
+
+  public setSorobanClientForTesting(sorobanClient: SorobanRpcClient): void {
+    if (process.env.NODE_ENV !== 'test') {
+      throw new Error('setSorobanClientForTesting is test-only');
+    }
+
+    this._sorobanClient = sorobanClient;
+    this.rebuildServices();
   }
 
   /**

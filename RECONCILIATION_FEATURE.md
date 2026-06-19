@@ -22,9 +22,9 @@ Implemented a scheduled job that compares on-chain Credit contract records with 
    - Failed jobs enter dead-letter queue after max retries
 
 3. **SorobanClient** (`src/services/sorobanClient.ts`)
-   - Mock implementation of Soroban RPC client
-   - Configurable via environment variables
-   - Ready for production replacement with @stellar/stellar-sdk
+   - Uses `MockSorobanClient` when `CREDIT_CONTRACT_ID` is empty
+   - Uses `StellarSorobanClient` for read-only `enumerate_credit_lines(start_after, limit)` when a contract id is configured
+   - Decodes ScVal/XDR into reconciliation records with Stellar-key redaction on diagnostics
 
 4. **API Routes** (`src/routes/reconciliation.ts`)
    - POST /api/reconciliation/trigger - Manual job trigger (admin)
@@ -43,6 +43,7 @@ Implemented a scheduled job that compares on-chain Credit contract records with 
 |-------|----------|--------|
 | existence | critical | Job fails → retry → dead-letter |
 | walletAddress | critical | Job fails → retry → dead-letter |
+| walletAddressFormatting | warning | Logged, job succeeds |
 | creditLimit | critical | Job fails → retry → dead-letter |
 | status | critical | Job fails → retry → dead-letter |
 | availableCredit | warning | Logged, job succeeds |
@@ -57,6 +58,9 @@ Environment variables:
 SOROBAN_RPC_URL=https://soroban-testnet.stellar.org
 CREDIT_CONTRACT_ID=<contract-id>
 STELLAR_NETWORK_PASSPHRASE=Test SDF Network ; September 2015
+SOROBAN_TIMEOUT_MS=30000
+SOROBAN_MAX_RETRIES=3
+SOROBAN_RETRY_JITTER_MS=1000
 
 # Reconciliation
 RECONCILIATION_INTERVAL_MS=3600000  # 1 hour default

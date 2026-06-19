@@ -20,6 +20,15 @@ const ENUMERATION_PAGE_LIMIT = 100;
 const MAX_ENUMERATED_CREDIT_RECORDS = 10_000;
 const BASE_RETRY_DELAY_MS = 1_000;
 const MAX_RETRY_POWER = 10;
+const DECIMAL_STRING_REGEX = /^-?\d+(?:\.\d+)?$/;
+// Must match the Credit contract enum discriminants for CreditLineStatus.
+const CREDIT_STATUS_BY_CONTRACT_DISCRIMINANT: Record<number, string> = {
+  0: 'active',
+  1: 'suspended',
+  2: 'defaulted',
+  3: 'closed',
+  4: 'restricted',
+};
 
 interface JsonRpcResponse<T> {
   result?: T;
@@ -330,17 +339,16 @@ function parseCreditLineData(value: unknown, index: number): {
   status: string;
 } {
   return {
-    walletAddress: toNonEmptyString(
+    walletAddress: toBorrowerPublicKey(
       readField(value, ['borrower', 'walletAddress', 'wallet_address'], 0, index),
       index,
-      'borrower',
     ),
-    creditLimit: toPreciseString(
+    creditLimit: toPreciseDecimalString(
       readField(value, ['credit_limit', 'creditLimit', 'limit'], 1, index),
       index,
       'creditLimit',
     ),
-    utilizedAmount: toPreciseString(
+    utilizedAmount: toPreciseDecimalString(
       readField(value, ['utilized_amount', 'utilizedAmount', 'utilized'], 2, index),
       index,
       'utilizedAmount',
@@ -392,7 +400,11 @@ function readOptionalField(value: unknown, fieldNames: string[]): unknown {
 }
 
 function toNonEmptyString(value: unknown, index: number, field: string): string {
-  const stringValue = toPreciseString(value, index, field);
+  if (typeof value !== 'string') {
+    throw new SorobanCreditRecordDecodeError(`Credit line ${index} field ${field} must be a string`);
+  }
+
+  const stringValue = value.trim();
 
   if (stringValue.length === 0) {
     throw new SorobanCreditRecordDecodeError(`Credit line ${index} field ${field} must be non-empty`);
@@ -401,9 +413,25 @@ function toNonEmptyString(value: unknown, index: number, field: string): string 
   return stringValue;
 }
 
-function toPreciseString(value: unknown, index: number, field: string): string {
+function toBorrowerPublicKey(value: unknown, index: number): string {
+  const walletAddress = toNonEmptyString(value, index, 'borrower');
+
+  if (!StrKey.isValidEd25519PublicKey(walletAddress)) {
+    throw new SorobanCreditRecordDecodeError(`Credit line ${index} borrower must be a valid Stellar public key`);
+  }
+
+  return walletAddress;
+}
+
+function toPreciseDecimalString(value: unknown, index: number, field: string): string {
   if (typeof value === 'string') {
-    return value;
+    const trimmed = value.trim();
+
+    if (!DECIMAL_STRING_REGEX.test(trimmed)) {
+      throw new SorobanCreditRecordDecodeError(`Credit line ${index} field ${field} was not a decimal string`);
+    }
+
+    return trimmed;
   }
 
   if (typeof value === 'bigint') {
@@ -414,12 +442,8 @@ function toPreciseString(value: unknown, index: number, field: string): string {
     return value.toString();
   }
 
-  if (hasUsefulToString(value)) {
-    return value.toString();
-  }
-
   throw new SorobanCreditRecordDecodeError(
-    `Credit line ${index} field ${field} was not a string, bigint, safe integer, or stringable value`,
+    `Credit line ${index} field ${field} was not a string-precise numeric value`,
   );
 }
 
@@ -445,14 +469,16 @@ function toSafeInteger(value: unknown, index: number, field: string): number {
 }
 
 function normalizeCreditStatus(value: unknown, index: number): string {
-  if (typeof value === 'number') {
-    return ['active', 'suspended', 'defaulted', 'closed', 'restricted'][value] ?? String(value);
+  if (typeof value === 'number' && Number.isSafeInteger(value)) {
+    return contractStatusFromDiscriminant(value, index);
   }
 
   if (typeof value === 'bigint') {
-    return value >= 0n && value <= BigInt(Number.MAX_SAFE_INTEGER)
-      ? (['active', 'suspended', 'defaulted', 'closed', 'restricted'][Number(value)] ?? value.toString())
-      : value.toString();
+    if (value < 0n || value > BigInt(Number.MAX_SAFE_INTEGER)) {
+      throw new SorobanCreditRecordDecodeError(`Credit line ${index} status ${value.toString()} is not a recognized contract status`);
+    }
+
+    return contractStatusFromDiscriminant(Number(value), index);
   }
 
   if (isRecord(value) && typeof value['tag'] === 'string') {
@@ -464,6 +490,18 @@ function normalizeCreditStatus(value: unknown, index: number): string {
 
 function normalizeStatusString(value: string): string {
   return value.replace(/([a-z0-9])([A-Z])/g, '$1_$2').replace(/[\s-]+/g, '_').toLowerCase();
+}
+
+function contractStatusFromDiscriminant(value: number, index: number): string {
+  const status = CREDIT_STATUS_BY_CONTRACT_DISCRIMINANT[value];
+
+  if (status === undefined) {
+    throw new SorobanCreditRecordDecodeError(
+      `Credit line ${index} status ${value} is not a recognized contract status`,
+    );
+  }
+
+  return status;
 }
 
 function subtractDecimalStrings(left: string, right: string): string {
@@ -487,7 +525,7 @@ function subtractDecimalStrings(left: string, right: string): string {
 }
 
 function parseDecimal(value: string): { value: bigint; scale: number } {
-  if (!/^-?\d+(?:\.\d+)?$/.test(value)) {
+  if (!DECIMAL_STRING_REGEX.test(value)) {
     throw new SorobanCreditRecordDecodeError(`Cannot subtract non-decimal value ${value}`);
   }
 
@@ -606,15 +644,6 @@ function positiveIntegerOrDefault(value: number | undefined, fallback: number): 
 
 function nonNegativeIntegerOrDefault(value: number | undefined, fallback: number): number {
   return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : fallback;
-}
-
-function hasUsefulToString(value: unknown): value is { toString(): string } {
-  return (
-    value !== null &&
-    typeof value === 'object' &&
-    typeof (value as { toString?: unknown }).toString === 'function' &&
-    (value as { toString(): string }).toString() !== '[object Object]'
-  );
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

@@ -6,8 +6,12 @@
  */
 
 import type { CreditLineRepository } from '../repositories/interfaces/CreditLineRepository.js';
+import type { CreditLine } from '../models/CreditLine.js';
 import type { JobQueue } from './jobQueue.js';
 import { sanitizeJsonForStellarDiagnostics, sanitizeStellarDiagnostic } from './stellarDiagnostics.js';
+
+const RECONCILIATION_DB_PAGE_SIZE = 1_000;
+const RECONCILIATION_MAX_DB_RECORDS = 10_000;
 
 export interface OnChainCreditRecord {
   /** Contract-level credit line identifier */
@@ -43,7 +47,6 @@ export interface ReconciliationResult {
 export interface SorobanRpcClient {
   /**
    * Fetch all credit records from the on-chain contract.
-   * In production, this would call the Soroban RPC endpoint.
    */
   fetchAllCreditRecords(): Promise<OnChainCreditRecord[]>;
 }
@@ -78,8 +81,7 @@ export class ReconciliationService {
     };
 
     try {
-      // Fetch all credit lines from database
-      const dbCreditLines = await this.creditLineRepository.findAll(0, 10000);
+      const dbCreditLines = await fetchAllDbCreditLines(this.creditLineRepository);
       
       // Fetch all credit records from on-chain contract
       const chainRecords = await this.sorobanClient.fetchAllCreditRecords();
@@ -89,10 +91,14 @@ export class ReconciliationService {
       const duplicateDbWallets = findDuplicateWallets(dbCreditLines.map(cl => cl.walletAddress));
       const duplicateChainWallets = findDuplicateWallets(chainRecords.map(cr => cr.walletAddress));
       for (const walletAddress of duplicateDbWallets) {
-        result.errors.push(`Duplicate database credit lines for borrower wallet ${walletAddress}`);
+        result.errors.push(
+          reconciliationDiagnostic(`Duplicate database credit lines for borrower wallet ${walletAddress}`),
+        );
       }
       for (const walletAddress of duplicateChainWallets) {
-        result.errors.push(`Duplicate on-chain credit records for borrower wallet ${walletAddress}`);
+        result.errors.push(
+          reconciliationDiagnostic(`Duplicate on-chain credit records for borrower wallet ${walletAddress}`),
+        );
       }
 
       if (result.errors.length > 0) {
@@ -168,15 +174,27 @@ export class ReconciliationService {
     chainRecord: OnChainCreditRecord,
     mismatches: ReconciliationMismatch[]
   ): void {
+    const dbWalletKey = walletKey(dbLine.walletAddress);
+    const chainWalletKey = walletKey(chainRecord.walletAddress);
+
     // Compare wallet address
-    if (dbLine.walletAddress !== chainRecord.walletAddress) {
+    if (dbWalletKey !== chainWalletKey) {
       mismatches.push({
         creditLineId: dbLine.id,
-        walletAddress: dbLine.walletAddress,
+        walletAddress: dbWalletKey,
         field: 'walletAddress',
-        dbValue: dbLine.walletAddress,
-        chainValue: chainRecord.walletAddress,
+        dbValue: dbWalletKey,
+        chainValue: chainWalletKey,
         severity: 'critical',
+      });
+    } else if (dbLine.walletAddress !== chainRecord.walletAddress) {
+      mismatches.push({
+        creditLineId: dbLine.id,
+        walletAddress: dbWalletKey,
+        field: 'walletAddressFormatting',
+        dbValue: sanitizeStellarDiagnostic(dbLine.walletAddress),
+        chainValue: sanitizeStellarDiagnostic(chainRecord.walletAddress),
+        severity: 'warning',
       });
     }
 
@@ -231,7 +249,13 @@ export class ReconciliationService {
 }
 
 function walletKey(walletAddress: string): string {
-  return walletAddress.trim();
+  const trimmed = walletAddress.trim();
+
+  if (trimmed.length === 0) {
+    throw new Error('Borrower wallet address cannot be empty');
+  }
+
+  return trimmed;
 }
 
 function findDuplicateWallets(walletAddresses: string[]): string[] {
@@ -247,4 +271,27 @@ function findDuplicateWallets(walletAddresses: string[]): string[] {
   }
 
   return Array.from(duplicates);
+}
+
+function reconciliationDiagnostic(message: string): string {
+  return sanitizeStellarDiagnostic(message);
+}
+
+async function fetchAllDbCreditLines(repository: CreditLineRepository): Promise<CreditLine[]> {
+  const all: CreditLine[] = [];
+
+  for (let offset = 0; ; offset += RECONCILIATION_DB_PAGE_SIZE) {
+    const page = await repository.findAll(offset, RECONCILIATION_DB_PAGE_SIZE);
+    all.push(...page);
+
+    if (all.length > RECONCILIATION_MAX_DB_RECORDS) {
+      throw new Error(
+        `Reconciliation exceeded ${RECONCILIATION_MAX_DB_RECORDS} database credit lines; shard or raise the configured cap`,
+      );
+    }
+
+    if (page.length < RECONCILIATION_DB_PAGE_SIZE) {
+      return all;
+    }
+  }
 }

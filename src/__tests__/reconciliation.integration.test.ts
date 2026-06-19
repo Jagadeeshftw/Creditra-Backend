@@ -6,7 +6,7 @@ import { InMemoryCreditLineRepository } from '../repositories/memory/InMemoryCre
 import { InMemoryJobQueue } from '../services/jobQueue.js';
 import { StellarSorobanClient } from '../services/sorobanClient.js';
 
-const TEST_PUBLIC_KEY = `G${'A'.repeat(55)}`;
+const TEST_PUBLIC_KEY = StrKey.encodeEd25519PublicKey(Buffer.alloc(32, 1));
 const TEST_CONTRACT_ID = StrKey.encodeContract(Buffer.alloc(32, 1));
 
 function pageXdr(value: unknown): string {

@@ -9,8 +9,8 @@ import {
   StellarSorobanClient,
 } from '../sorobanClient.js';
 
-const TEST_PUBLIC_KEY = `G${'A'.repeat(55)}`;
-const TEST_SECRET_KEY = `S${'C'.repeat(55)}`;
+const TEST_PUBLIC_KEY = publicKeyFromSeed(1);
+const TEST_SECRET_KEY = StrKey.encodeEd25519SecretSeed(Buffer.alloc(32, 2));
 const TEST_CONTRACT_ID = StrKey.encodeContract(Buffer.alloc(32, 1));
 const TEST_CONFIG = {
   rpcUrl: 'https://soroban-testnet.stellar.org',
@@ -33,7 +33,13 @@ function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status, statusText: status === 200 ? 'OK' : 'failed' });
 }
 
-function creditEntry(cursor: number, borrower = `GBORROWER${String(cursor).padStart(47, 'A')}`): unknown[] {
+function publicKeyFromSeed(seed: number): string {
+  const bytes = Buffer.alloc(32);
+  bytes.writeUInt32BE(seed);
+  return StrKey.encodeEd25519PublicKey(bytes);
+}
+
+function creditEntry(cursor: number, borrower = publicKeyFromSeed(cursor + 10)): unknown[] {
   return [
     cursor,
     {
@@ -258,7 +264,7 @@ describe('StellarSorobanClient', () => {
   it('rejects full pages whose cursor does not advance', async () => {
     const firstPage = Array.from({ length: 100 }, (_value, index) => creditEntry(index));
     const nonAdvancingPage = Array.from({ length: 100 }, (_value, index) => creditEntry(100 + index));
-    nonAdvancingPage[99] = creditEntry(99, 'GNONADVANCINGAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA');
+    nonAdvancingPage[99] = creditEntry(99, publicKeyFromSeed(9999));
     const fetchImpl = vi
       .fn()
       .mockResolvedValueOnce(
@@ -353,14 +359,61 @@ describe('parseEnumeratedCreditLinesScVal', () => {
     ]);
   });
 
-  it('rejects duplicate borrowers instead of letting reconciliation hide them', () => {
+  it('rejects blank and malformed borrower public keys', () => {
+    expect(() =>
+      parseEnumeratedCreditLinesScVal(nativeToScVal([[1, ['', 1000n, 250n, 300, 0]]])),
+    ).toThrow(SorobanCreditRecordDecodeError);
+
+    expect(() =>
+      parseEnumeratedCreditLinesScVal(nativeToScVal([[1, ['not-a-stellar-key', 1000n, 250n, 300, 0]]])),
+    ).toThrow(SorobanCreditRecordDecodeError);
+
+    expect(() =>
+      parseEnumeratedCreditLinesScVal(nativeToScVal([[1, [TEST_PUBLIC_KEY.toLowerCase(), 1000n, 250n, 300, 0]]])),
+    ).toThrow(SorobanCreditRecordDecodeError);
+  });
+
+  it('rejects malformed decimal values without accepting arbitrary stringable objects', () => {
+    expect(() =>
+      parseEnumeratedCreditLinesScVal(nativeToScVal([[1, [TEST_PUBLIC_KEY, '100.00.00', 250n, 300, 0]]])),
+    ).toThrow(SorobanCreditRecordDecodeError);
+
+    expect(() =>
+      parseEnumeratedCreditLinesScVal(nativeToScVal([[1, [TEST_PUBLIC_KEY, 'abc', 250n, 300, 0]]])),
+    ).toThrow(SorobanCreditRecordDecodeError);
+
+    expect(() =>
+      parseEnumeratedCreditLinesScVal(nativeToScVal([[1, [TEST_PUBLIC_KEY, '', 250n, 300, 0]]])),
+    ).toThrow(SorobanCreditRecordDecodeError);
+
     expect(() =>
       parseEnumeratedCreditLinesScVal(
-        nativeToScVal([
-          [0, [TEST_PUBLIC_KEY, 1000n, 0n, 300, 70, 'Active']],
-          [1, [TEST_PUBLIC_KEY, 2000n, 0n, 300, 70, 'Active']],
-        ]),
+        nativeToScVal([[1, { borrower: TEST_PUBLIC_KEY, credit_limit: { value: '100' }, utilized_amount: 250n, interest_rate_bps: 300, status: 0 }]]),
       ),
     ).toThrow(SorobanCreditRecordDecodeError);
+  });
+
+  it('rejects unknown numeric status discriminants', () => {
+    expect(() =>
+      parseEnumeratedCreditLinesScVal(nativeToScVal([[1, [TEST_PUBLIC_KEY, 1000n, 250n, 300, 99]]])),
+    ).toThrow(SorobanCreditRecordDecodeError);
+  });
+
+  it('rejects duplicate borrowers instead of letting reconciliation hide them', () => {
+    let thrown: unknown;
+    try {
+      parseEnumeratedCreditLinesScVal(
+        nativeToScVal([
+          [0, [TEST_PUBLIC_KEY, 1000n, 0n, 300, 'Active']],
+          [1, [TEST_PUBLIC_KEY, 2000n, 0n, 300, 'Active']],
+        ]),
+      );
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown).toBeInstanceOf(SorobanCreditRecordDecodeError);
+    expect((thrown as Error).message).toContain('[REDACTED_STELLAR_PUBLIC_KEY]');
+    expect((thrown as Error).message).not.toContain(TEST_PUBLIC_KEY);
   });
 });

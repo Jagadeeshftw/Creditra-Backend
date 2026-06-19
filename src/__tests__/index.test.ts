@@ -17,30 +17,31 @@ describe('Main Application', () => {
     const originalPort = process.env.PORT;
     process.env.PORT = '0'; // Use random available port
 
-    // Import and start the app
-    const { default: app } = await import('../index.js');
-    
-    const response = await request(app)
-      .get('/health')
-      .expect(200);
+    try {
+      // Import and start the app
+      const { default: app } = await import('../index.js');
 
-    expect(response.body).toEqual({
-      data: {
-        status: 'ok',
-        service: 'creditra-backend',
-        ready: expect.any(Boolean),
-        dependencies: expect.any(Object),
-      },
-      error: null
-    });
+      const response = await request(app)
+        .get('/health')
+        .expect(200);
 
-    // Restore original PORT
-    if (originalPort) {
-      process.env.PORT = originalPort;
-    } else {
-      delete process.env.PORT;
+      expect(response.body).toEqual({
+        data: {
+          status: 'ok',
+          service: 'creditra-backend',
+          ready: expect.any(Boolean),
+          dependencies: expect.any(Object),
+        },
+        error: null
+      });
+    } finally {
+      if (originalPort) {
+        process.env.PORT = originalPort;
+      } else {
+        delete process.env.PORT;
+      }
     }
-  });
+  }, 10_000);
 
   it('should handle credit routes', async () => {
     const { default: app } = await import('../index.js');

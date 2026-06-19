@@ -88,7 +88,8 @@ The reconciliation service compares the following fields:
 | Field | Severity | Description |
 |-------|----------|-------------|
 | existence | critical | Record exists in one system but not the other |
-| walletAddress | critical | Wallet address mismatch |
+| walletAddress | critical | Normalized wallet identity mismatch |
+| walletAddressFormatting | warning | Raw wallet formatting differs after normalized identity matches |
 | creditLimit | critical | Credit limit mismatch |
 | status | critical | Status mismatch (active, suspended, closed) |
 | availableCredit | warning | Available credit mismatch |
@@ -118,6 +119,10 @@ The contract enumeration cursor is not the backend UUID. Reconciliation matches
 records by borrower wallet address and fails the pass with an explicit error if
 either side contains duplicate borrower wallets, because those rows cannot be
 paired safely without another shared key.
+
+Database rows are fetched in pages of 1,000. A pass fails with a sanitized
+`ReconciliationResult.errors[]` entry if more than 10,000 database credit lines
+would need to be compared, rather than silently ignoring records beyond the cap.
 
 ## Security Considerations
 
