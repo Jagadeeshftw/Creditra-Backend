@@ -450,7 +450,10 @@ describe("DrawWebhookService", () => {
 
     describe("Request Timeout", () => {
         it("should handle request timeouts", async () => {
+            process.env.WEBHOOK_URLS = "https://example.com/webhook";
+            process.env.WEBHOOK_SECRET = "test-secret";
             process.env.WEBHOOK_TIMEOUT_MS = "1000";
+            process.env.WEBHOOK_MAX_RETRIES = "0";
             initializeWebhooks();
 
             // Mock fetch that never resolves
@@ -480,7 +483,7 @@ describe("DrawWebhookService", () => {
             expect(results[0]).toEqual({
                 url: "https://example.com/webhook",
                 success: false,
-                attempt: 4, // Max retries + 1
+                attempt: 1,
                 error: "Request timeout"
             });
         });

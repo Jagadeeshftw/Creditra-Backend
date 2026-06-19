@@ -3,6 +3,7 @@ import request from 'supertest';
 import { app } from '../index.js';
 
 const VALID_KEY = 'integration-test-key';
+const VALID_ADDRESS = 'GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
 
 beforeAll(() => {
     process.env.NODE_ENV = 'test';
@@ -15,15 +16,14 @@ afterAll(() => {
 
 describe('POST /api/risk/evaluate (public)', () => {
     it('returns 200 with a valid Stellar walletAddress', async () => {
-        const validAddress = 'GBAHQCUPC7G2B4D2F2I2K2M2O2Q2S2U2W2Y2A2C2E2G2I2K2M2O2Q2S2';
         const res = await request(app)
             .post('/api/risk/evaluate')
-            .send({ walletAddress: validAddress });
+            .send({ walletAddress: VALID_ADDRESS });
         expect(res.status).toBe(200);
-        expect(res.body.walletAddress).toBe(validAddress);
-        expect(res.body).toHaveProperty('riskScore');
-        expect(res.body).toHaveProperty('creditLimit');
-        expect(res.body).toHaveProperty('interestRateBps');
+        expect(res.body.data.walletAddress).toBe(VALID_ADDRESS);
+        expect(res.body.data).toHaveProperty('riskScore');
+        expect(res.body.data).toHaveProperty('creditLimit');
+        expect(res.body.data).toHaveProperty('interestRateBps');
     });
 
     it('returns 400 with an invalid Stellar walletAddress', async () => {
@@ -32,14 +32,14 @@ describe('POST /api/risk/evaluate (public)', () => {
             .send({ walletAddress: 'invalid-address' });
         expect(res.status).toBe(400);
         expect(res.body.error).toBe('Validation failed');
-        expect(res.body.details[0].message).toBe('Invalid Stellar wallet address');
+        expect(res.body.details[0].message).toBe('walletAddress must be a valid Stellar address');
     });
 
     it('returns 400 when walletAddress is missing', async () => {
         const res = await request(app).post('/api/risk/evaluate').send({});
         expect(res.status).toBe(400);
         expect(res.body.error).toBe('Validation failed');
-        expect(res.body.details[0].message).toBe('walletAddress is required');
+        expect(res.body.details[0].field).toBe('walletAddress');
     });
 
     it('returns 400 when body is empty', async () => {
@@ -51,7 +51,7 @@ describe('POST /api/risk/evaluate (public)', () => {
     it('does not require an API key', async () => {
         const res = await request(app)
             .post('/api/risk/evaluate')
-            .send({ walletAddress: 'GBAHQCUPC7G2B4D2F2I2K2M2O2Q2S2U2W2Y2A2C2E2G2I2K2M2O2Q2S2' });
+            .send({ walletAddress: VALID_ADDRESS });
         expect(res.status).toBe(200);
     });
 });
@@ -85,6 +85,6 @@ describe('POST /api/risk/admin/recalibrate (admin – requires API key)', () => 
             .post('/api/risk/admin/recalibrate')
             .set('x-api-key', VALID_KEY);
         expect(res.status).toBe(200);
-        expect(res.body.message).toBe('Risk model recalibration triggered');
+        expect(res.body.data.message).toBe('Risk model recalibration triggered');
     });
 });

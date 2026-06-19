@@ -468,6 +468,13 @@ async function handleCursorGap(config: HorizonListenerConfig, gapStart: string):
 
 export async function pollOnce(config: HorizonListenerConfig): Promise<void> {
     try {
+        // Direct pollOnce() calls should not inherit a previous backoff window.
+        if (!running && retryState.attempts > 0) {
+            retryState.attempts = 0;
+            retryState.lastErrorTime = 0;
+            retryState.nextRetryTime = 0;
+        }
+
         // Check if we're in a backoff period
         if (retryState.nextRetryTime > Date.now()) {
             if (config.enableMetrics) {
@@ -485,13 +492,11 @@ export async function pollOnce(config: HorizonListenerConfig): Promise<void> {
         
         const cursor = currentLedgerCursor ? `${currentLedgerCursor}` : config.startLedger;
         
-        if (config.enableMetrics) {
-            logInfo(
-                `[HorizonListener] Polling ${config.horizonUrl} ` +
-                `(contracts: ${config.contractIds.length > 0 ? config.contractIds.join(", ") : "none"}, ` +
-                `cursor: ${cursor})`,
-            );
-        }
+        logInfo(
+            `[HorizonListener] Polling ${config.horizonUrl} ` +
+            `(contracts: ${config.contractIds.length > 0 ? config.contractIds.join(", ") : "none"}, ` +
+            `cursor: ${cursor})`,
+        );
         
         const { events } = await fetchHorizonEvents(config, cursor);
         

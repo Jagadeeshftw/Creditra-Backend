@@ -6,7 +6,12 @@ describe('GET /health', () => {
   it('returns 200 with status ok', async () => {
     const res = await request(app).get('/health');
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ status: 'ok', service: 'creditra-backend' });
+    expect(res.body).toMatchObject({
+      data: { status: 'ok', service: 'creditra-backend' },
+      error: null,
+    });
+    expect(res.body.data).toHaveProperty('ready');
+    expect(res.body.data).toHaveProperty('dependencies');
   });
 });
 
@@ -23,8 +28,8 @@ describe('GET /api/credit/lines', () => {
   it('returns 200 with empty creditLines array', async () => {
     const res = await request(app).get('/api/credit/lines');
     expect(res.status).toBe(200);
-    expect(res.body).toHaveProperty('creditLines');
-    expect(Array.isArray(res.body.creditLines)).toBe(true);
+    expect(res.body.data).toHaveProperty('creditLines');
+    expect(Array.isArray(res.body.data.creditLines)).toBe(true);
   });
 });
 
@@ -32,8 +37,7 @@ describe('GET /api/credit/lines/:id', () => {
   it('returns 404 for unknown id', async () => {
     const res = await request(app).get('/api/credit/lines/nonexistent');
     expect(res.status).toBe(404);
-    expect(res.body).toHaveProperty('error', 'Credit line not found');
-    expect(res.body).toHaveProperty('id', 'nonexistent');
+    expect(res.body).toEqual({ data: null, error: 'Credit line not found' });
   });
 });
 
@@ -41,19 +45,18 @@ describe('POST /api/risk/evaluate', () => {
   it('returns 400 when walletAddress is missing', async () => {
     const res = await request(app).post('/api/risk/evaluate').send({});
     expect(res.status).toBe(400);
-    expect(res.body).toHaveProperty('error', 'walletAddress required');
+    expect(res.body).toMatchObject({ data: null, error: 'Validation failed' });
   });
 
   it('returns 200 with risk fields when walletAddress provided', async () => {
-    const wallet = '0xAbC1234567890abcdef1234567890abcdef123456';
     const res = await request(app)
       .post('/api/risk/evaluate')
-      .send({ walletAddress: wallet });
+      .send({ walletAddress: 'GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA' });
     expect(res.status).toBe(200);
-    expect(res.body.walletAddress).toBe(wallet);
-    expect(res.body).toHaveProperty('riskScore');
-    expect(res.body).toHaveProperty('creditLimit');
-    expect(res.body).toHaveProperty('interestRateBps');
-    expect(res.body).toHaveProperty('message');
+    expect(res.body.data.walletAddress).toBe('GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA');
+    expect(res.body.data).toHaveProperty('riskScore');
+    expect(res.body.data).toHaveProperty('creditLimit');
+    expect(res.body.data).toHaveProperty('interestRateBps');
+    expect(res.body.data).toHaveProperty('message');
   });
 });

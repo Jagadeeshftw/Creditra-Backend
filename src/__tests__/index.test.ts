@@ -27,7 +27,9 @@ describe('Main Application', () => {
     expect(response.body).toEqual({
       data: {
         status: 'ok',
-        service: 'creditra-backend'
+        service: 'creditra-backend',
+        ready: expect.any(Boolean),
+        dependencies: expect.any(Object),
       },
       error: null
     });
@@ -55,9 +57,9 @@ describe('Main Application', () => {
     
     const response = await request(app)
       .post('/api/risk/evaluate')
-      .send({ walletAddress: 'GBAHQCUPC7G2B4D2F2I2K2M2O2Q2S2U2W2Y2A2C2E2G2I2K2M2O2Q2S1' })
+      .send({ walletAddress: 'GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA' })
       .expect(200);
 
-    expect(response.body.data.walletAddress).toBe('GBAHQCUPC7G2B4D2F2I2K2M2O2Q2S2U2W2Y2A2C2E2G2I2K2M2O2Q2S1');
+    expect(response.body.data.walletAddress).toBe('GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA');
   });
 });

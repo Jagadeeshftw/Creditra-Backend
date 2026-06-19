@@ -61,7 +61,7 @@ describe('Content-Type enforcement', () => {
     const res = await request(app)
       .post('/api/risk/evaluate')
       .set('Content-Type', 'application/json')
-      .send({ walletAddress: '0xabc' });
+      .send({ walletAddress: 'GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA' });
 
     expect(res.status).toBe(200);
   });

@@ -110,7 +110,7 @@ creditRouter.get('/lines', async (req, res) => {
       pagination: { total, offset, limit },
     });
   } catch (error) {
-    return fail(res, error, 400);
+    return fail(res, error instanceof Error ? error : undefined, 400);
   }
 });
 
@@ -137,7 +137,7 @@ creditRouter.post('/lines', validateBody(createCreditLineSchema), async (req, re
     });
     return ok(res, creditLine, 201);
   } catch (error) {
-    return fail(res, error, 400);
+    return fail(res, error instanceof Error ? error : undefined, 400);
   }
 });
 

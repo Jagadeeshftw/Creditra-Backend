@@ -8,10 +8,12 @@ describe('GET /health', () => {
   it('returns 200 with ok status', async () => {
     const res = await request(app).get('/health');
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ 
+    expect(res.body).toMatchObject({
       data: { status: 'ok', service: 'creditra-backend' },
-      error: null 
+      error: null,
     });
+    expect(res.body.data).toHaveProperty('ready');
+    expect(res.body.data).toHaveProperty('dependencies');
   });
 });
 
@@ -20,7 +22,7 @@ describe('Credit routes', () => {
     it('returns empty array', async () => {
       const res = await request(app).get('/api/credit/lines');
       expect(res.status).toBe(200);
-      expect(res.body.data).toEqual([]);
+      expect(res.body.data.creditLines).toEqual([]);
     });
   });
 
@@ -28,7 +30,7 @@ describe('Credit routes', () => {
     it('returns 404', async () => {
       const res = await request(app).get('/api/credit/lines/abc');
       expect(res.status).toBe(404);
-      expect(res.body.error).toContain('abc');
+      expect(res.body.error).toBe('Credit line not found');
       expect(res.body.data).toBeNull();
     });
   });
@@ -40,9 +42,9 @@ describe('Credit routes', () => {
         .send({ walletAddress: VALID_ADDRESS, requestedLimit: '5000' });
 
       expect(res.status).toBe(201);
-      expect(res.body.walletAddress).toBe(VALID_ADDRESS);
-      expect(res.body.creditLimit).toBe('5000');
-      expect(res.body.status).toBe('active');
+      expect(res.body.data.walletAddress).toBe(VALID_ADDRESS);
+      expect(res.body.data.creditLimit).toBe('5000');
+      expect(res.body.data.status).toBe('active');
     });
 
     it('returns 400 when walletAddress is missing', async () => {

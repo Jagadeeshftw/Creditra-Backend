@@ -169,8 +169,14 @@ export class Container {
     // Stop job queue
     defaultJobQueue.stop();
 
-    // In the future, close database pools here:
-    // await this.dbPool?.end();
+    if (this._dbClient) {
+      try {
+        await this._dbClient.end();
+        console.log("[Container] Database connection closed.");
+      } catch (error) {
+        console.error("[Container] Error closing database connection:", error);
+      }
+    }
 
     console.log("[Container] All services shut down.");
   }

@@ -183,6 +183,10 @@ class SorobanRpcClient {
         return await operation();
       } catch (error) {
         lastError = error as Error;
+
+        if (!this.isRetryableError(lastError)) {
+          throw lastError;
+        }
         
         if (attempt === this.config.maxRetries) {
           throw lastError;
@@ -198,6 +202,10 @@ class SorobanRpcClient {
     }
 
     throw lastError!;
+  }
+
+  private isRetryableError(error: Error): boolean {
+    return /temporary|timeout|timed out|network|rate limit|econn|etimedout|fetch/i.test(error.message);
   }
 
   private async makeRpcCall(method: string, params: any): Promise<any> {
@@ -278,7 +286,7 @@ class SorobanRpcClient {
 
       for (const [key, value] of Object.entries(params)) {
         if (key === 'privateKey' || key === 'secret') {
-          sanitized[key] = '[REDACTED]';
+          continue;
         } else {
           sanitized[key] = this.sanitizeParams(value);
         }
