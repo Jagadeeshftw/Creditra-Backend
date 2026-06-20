@@ -31,6 +31,8 @@ tags:
     description: On-chain risk evaluation
   - name: Webhooks
     description: Draw confirmation webhook management
+  - name: Reconciliation
+    description: Admin control plane for DB-vs-chain reconciliation
 
 security:
   - ApiKeyAuth: []
@@ -390,6 +392,42 @@ components:
           type: string
           example: "Risk model recalibration triggered"
 
+    ReconciliationTriggerResponse:
+      type: object
+      properties:
+        data:
+          type: object
+          required: [jobId, message]
+          properties:
+            jobId:
+              type: string
+              description: Identifier for the scheduled reconciliation job
+            message:
+              type: string
+              example: Reconciliation job scheduled
+        error:
+          type: string
+          nullable: true
+
+    ReconciliationStatusResponse:
+      type: object
+      properties:
+        data:
+          type: object
+          required: [workerRunning, queueSize, failedJobs]
+          properties:
+            workerRunning:
+              type: boolean
+            queueSize:
+              type: integer
+              minimum: 0
+            failedJobs:
+              type: integer
+              minimum: 0
+        error:
+          type: string
+          nullable: true
+
     # ── Error Schemas ─────────────────────────────────────────────────────────
 
     ErrorResponse:
@@ -427,6 +465,83 @@ paths:
               example:
                 status: ok
                 service: creditra-backend
+
+  # ── Reconciliation Routes ───────────────────────────────────────────────────
+
+  /api/reconciliation/trigger:
+    post:
+      tags: [Reconciliation]
+      operationId: triggerReconciliation
+      summary: Schedule a reconciliation job
+      description: Admin-gated endpoint that schedules a DB-vs-chain reconciliation job and returns immediately.
+      responses:
+        "202":
+          description: Reconciliation job scheduled
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReconciliationTriggerResponse"
+              example:
+                data:
+                  jobId: "reconciliation-1710000000000"
+                  message: Reconciliation job scheduled
+                error: null
+        "401":
+          description: Missing API key
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Invalid API key
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Failed to schedule reconciliation
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/reconciliation/status:
+    get:
+      tags: [Reconciliation]
+      operationId: getReconciliationStatus
+      summary: Get reconciliation worker and queue status
+      description: Admin-gated endpoint for dashboards and alerts to inspect worker and queue health.
+      responses:
+        "200":
+          description: Reconciliation status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReconciliationStatusResponse"
+              example:
+                data:
+                  workerRunning: true
+                  queueSize: 0
+                  failedJobs: 0
+                error: null
+        "401":
+          description: Missing API key
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Invalid API key
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Failed to get reconciliation status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
 
   # ── Credit Lines Routes ─────────────────────────────────────────────────────
 

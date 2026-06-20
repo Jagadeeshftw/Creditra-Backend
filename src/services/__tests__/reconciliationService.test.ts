@@ -814,7 +814,7 @@ describe('ReconciliationService', () => {
       ]));
     });
 
-    it('classifies each comparable field with the expected severity', async () => {
+    it('classifies each comparable non-wallet field with the expected severity', async () => {
       const directRepo = new InMemoryCreditLineRepository();
       const dbLine = await directRepo.create({
         walletAddress: 'GTEST123',
@@ -823,7 +823,7 @@ describe('ReconciliationService', () => {
       });
       const chainRecord: OnChainCreditRecord = {
         id: dbLine.id,
-        walletAddress: 'GTEST456',
+        walletAddress: dbLine.walletAddress,
         creditLimit: '15000.00',
         availableCredit: '9000.00',
         interestRateBps: 600,
@@ -844,7 +844,7 @@ describe('ReconciliationService', () => {
       const mismatchesByField = new Map(result.mismatches.map((mismatch) => [mismatch.field, mismatch]));
 
       expect(result.errors).toHaveLength(0);
-      expect(mismatchesByField.get('walletAddress')).toMatchObject({ severity: 'critical' });
+      expect(mismatchesByField.has('walletAddress')).toBe(false);
       expect(mismatchesByField.get('creditLimit')).toMatchObject({ severity: 'critical' });
       expect(mismatchesByField.get('availableCredit')).toMatchObject({ severity: 'warning' });
       expect(mismatchesByField.get('interestRateBps')).toMatchObject({ severity: 'warning' });

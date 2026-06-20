@@ -21,6 +21,16 @@ describe('GET /docs.json', () => {
     expect(res.status).toBe(200);
     expect(res.body.openapi).toBe('3.0.3');
     expect(res.body.info.title).toBe('Creditra API');
+    expect(res.body.paths).toHaveProperty('/api/reconciliation/trigger');
+    expect(res.body.paths).toHaveProperty('/api/reconciliation/status');
+  });
+});
+
+describe('GET /api/reconciliation/status', () => {
+  it('is mounted and rejects unauthenticated callers', async () => {
+    const res = await request(app).get('/api/reconciliation/status');
+    expect(res.status).toBe(401);
+    expect(res.body).toEqual({ error: 'Unauthorized' });
   });
 });
 

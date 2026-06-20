@@ -10,6 +10,7 @@ import { creditRouter } from "./routes/credit.js";
 import { riskRouter } from "./routes/risk.js";
 import { healthRouter } from "./routes/health.js";
 import { webhookRouter } from "./routes/webhook.js";
+import { reconciliationRouter } from "./routes/reconciliation.js";
 import { errorHandler } from "./middleware/errorHandler.js";
 import { requestLogger } from "./middleware/requestLogger.js";
 import { createIpKeyGenerator, createRateLimitMiddleware } from "./middleware/rateLimit.js";
@@ -93,6 +94,7 @@ app.use("/api/risk/evaluate", evaluateRateLimit);
 app.use("/api/risk/wallet", defaultRateLimit);
 app.use("/api/risk", riskRouter);
 app.use("/api/webhooks", webhookRouter);
+app.use("/api/reconciliation", reconciliationRouter);
 
 // Global error handler — must be registered after routes
 app.use(errorHandler);
