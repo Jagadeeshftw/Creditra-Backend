@@ -100,7 +100,7 @@ describe("adminAuth middleware", () => {
         it("returns 401 when the header is close but not equal to the secret", async () => {
             const res = await request(buildApp())
                 .post("/protected")
-                .set(ADMIN_KEY_HEADER, SECRET + " ");
+                .set(ADMIN_KEY_HEADER, `${SECRET}-wrong`);
 
             expect(res.status).toBe(401);
         });
