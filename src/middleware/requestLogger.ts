@@ -1,6 +1,7 @@
 import type { Request, Response, NextFunction } from "express";
 import { randomUUID } from "crypto";
 import { logger } from "../utils/logger.js";
+import { redactLogString } from "../utils/logRedact.js";
 
 export const REQUEST_ID_HEADER = "x-request-id";
 
@@ -38,11 +39,12 @@ export function requestLogger(
   res.setHeader(REQUEST_ID_HEADER, requestId);
 
   // 4. Log request start
+  const path = redactLogString(req.originalUrl, false);
   logger.info(
     {
       requestId,
       method: req.method,
-      path: req.originalUrl,
+      path,
     },
     "request:start",
   );
@@ -60,7 +62,7 @@ export function requestLogger(
       {
         requestId,
         method: req.method,
-        path: req.originalUrl,
+        path,
         statusCode: res.statusCode,
         durationMs: duration,
         walletAddress: wallet, // sanitized

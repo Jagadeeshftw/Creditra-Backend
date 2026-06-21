@@ -18,6 +18,7 @@ For **external penetration-test preparation** (scope, auth bypass checks, rate l
 - [ ] Role-based access control (RBAC) is implemented where needed
 - [ ] Users can only access their own credit lines and data
 - [ ] Admin endpoints have separate authorization checks
+- [ ] Admin shared-secret comparisons use constant-time equality checks
 - [ ] Authorization checks occur on every request (not cached insecurely)
 - [ ] Principle of least privilege is applied to all roles
 
@@ -61,7 +62,7 @@ For **external penetration-test preparation** (scope, auth bypass checks, rate l
 ### Log Content
 - [ ] Logs include timestamp, user ID, IP address, endpoint, and action
 - [ ] Logs DO NOT contain sensitive data (passwords, tokens, PII)
-- [ ] Logs DO NOT contain full credit card or wallet private keys
+- [ ] Logs DO NOT contain full credit card numbers, wallet private keys, Stellar secret seeds, muxed accounts, or email addresses
 - [ ] Error messages to clients are generic (detailed errors only in logs)
 
 ### Log Security
