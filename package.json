@@ -37,6 +37,7 @@
     "test:coverage": "vitest run --coverage",
     "db:migrate": "tsx src/db/migrate-cli.ts",
     "db:validate": "tsx src/db/validate-cli.ts",
+    "db:retention": "tsx src/db/data-retention-cli.ts",
     "validate:spec": "node --input-type=module <<< \"import fs from 'fs'; import yaml from 'yaml'; yaml.parse(fs.readFileSync('src/openapi.yaml','utf8')); console.log('✅ OpenAPI spec valid');\"",
     "load:smoke": "k6 run scripts/load/smoke.js",
     "load:stress": "k6 run scripts/load/stress.js",

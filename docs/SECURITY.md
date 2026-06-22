@@ -14,6 +14,7 @@ This document is the backend's threat model and the catalogue of in-tree mitigat
 | API keys | Timing leaks during comparison | `crypto.timingSafeEqual` in [`auth.ts`](../src/middleware/auth.ts) |
 | Logs | PII / secret exfiltration | `redactLogArgs`, Stellar public/secret/muxed account masking, email masking, and `sanitizeWallet` truncation |
 | DB | Drift from on-chain truth | `ReconciliationWorker` runs every `RECONCILIATION_INTERVAL_MS` |
+| Borrower PII (wallet address) | Indefinite retention of identifying data | `DataRetentionWorker` anonymizes inactive borrowers' `wallet_address` and purges stale audit/risk data — see [`docs/DATA_RETENTION.md`](./DATA_RETENTION.md) |
 | Service availability | Brute force / abusive scrapers | Token-bucket rate limit with `Retry-After` |
 | Service availability | Large body payloads | 100 kB body cap, 413 mapped to envelope |
 | Outbound calls | Slow / hung dependencies | `fetchWithTimeout` connect+read timeouts |

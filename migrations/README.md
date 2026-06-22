@@ -45,3 +45,5 @@ This runs the initial migration (or all pending migrations) and checks for the p
 | File                     | Description                    |
 |--------------------------|--------------------------------|
 | `001_initial_schema.sql` | Borrowers, credit lines, risk evaluations, transactions, events, indexes |
+| `002_add_interest_rate_to_credit_lines.sql` | Adds `interest_rate_bps` to `credit_lines` |
+| `003_data_retention.sql` | Adds `borrowers.anonymized_at` and the `data_retention_runs` audit table — see [docs/DATA_RETENTION.md](../docs/DATA_RETENTION.md) |

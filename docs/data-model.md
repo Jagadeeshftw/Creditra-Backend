@@ -101,6 +101,7 @@ Stores borrower identities. The main natural key is `wallet_address` (unique).
 | `wallet_address` | `text`       | NO       | Unique wallet/identity address       |
 | `created_at`     | `timestamptz`| NO       | Row creation time (default `now()`)  |
 | `updated_at`     | `timestamptz`| NO       | Row update time (default `now()`)    |
+| `anonymized_at`  | `timestamptz`| YES      | Set once the data retention job anonymizes `wallet_address`; see [docs/DATA_RETENTION.md](./DATA_RETENTION.md) |
 
 **Constraints:** `PRIMARY KEY (id)`, `UNIQUE (wallet_address)`.
 

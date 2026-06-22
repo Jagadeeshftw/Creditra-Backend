@@ -94,6 +94,29 @@ if (isMain) {
       runImmediately: process.env.RECONCILIATION_RUN_IMMEDIATELY !== "false",
     });
     console.log(`[ReconciliationWorker] Started with ${reconciliationInterval}ms interval`);
+
+    // Start data retention worker (no-op if running without Postgres)
+    if (process.env.DATA_RETENTION_ENABLED !== "false" && container.dataRetentionWorker) {
+      const retentionInterval = parseInt(
+        process.env.DATA_RETENTION_INTERVAL_MS ?? "86400000", // Default: 24 hours
+        10,
+      );
+      container.dataRetentionWorker.start({
+        intervalMs: retentionInterval,
+        runImmediately: process.env.DATA_RETENTION_RUN_IMMEDIATELY === "true",
+        retentionConfig: {
+          operationalRetentionDays: parseInt(
+            process.env.DATA_RETENTION_OPERATIONAL_DAYS ?? "90",
+            10,
+          ),
+          eventsRetentionDays: parseInt(
+            process.env.DATA_RETENTION_EVENTS_DAYS ?? "365",
+            10,
+          ),
+        },
+      });
+      console.log(`[DataRetentionWorker] Started with ${retentionInterval}ms interval`);
+    }
   });
 
   // ── Graceful Shutdown ───────────────────────────────────────────────────────
