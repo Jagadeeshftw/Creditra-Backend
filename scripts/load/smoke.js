@@ -28,7 +28,8 @@ export default function () {
     'health status is 200': (r) => r.status === 200,
     'health response has status ok': (r) => {
       try {
-        return JSON.parse(r.body).status === 'ok';
+        const body = JSON.parse(r.body);
+        return body.data?.status === 'ok';
       } catch {
         return false;
       }
@@ -44,7 +45,7 @@ export default function () {
     'list response has creditLines array': (r) => {
       try {
         const body = JSON.parse(r.body);
-        return Array.isArray(body.creditLines);
+        return Array.isArray(body.data?.creditLines);
       } catch {
         return false;
       }
@@ -55,7 +56,7 @@ export default function () {
 
   // Test 3: Risk evaluation
   const riskPayload = JSON.stringify({
-    walletAddress: 'GABC1234567890ABCDEFGHIJKLMNOPQRSTUVWXYZ234567890ABCDE',
+    walletAddress: 'GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
   });
 
   const riskParams = {
@@ -70,7 +71,7 @@ export default function () {
     'risk response has walletAddress': (r) => {
       try {
         const body = JSON.parse(r.body);
-        return body.walletAddress !== undefined;
+        return body.data?.walletAddress !== undefined;
       } catch {
         return false;
       }

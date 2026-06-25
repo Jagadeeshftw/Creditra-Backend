@@ -6,7 +6,12 @@
  */
 
 import type { CreditLineRepository } from '../repositories/interfaces/CreditLineRepository.js';
+import type { CreditLine } from '../models/CreditLine.js';
 import type { JobQueue } from './jobQueue.js';
+import { sanitizeJsonForStellarDiagnostics, sanitizeStellarDiagnostic } from './stellarDiagnostics.js';
+
+const RECONCILIATION_DB_PAGE_SIZE = 1_000;
+const RECONCILIATION_MAX_DB_RECORDS = 10_000;
 
 export interface OnChainCreditRecord {
   /** Contract-level credit line identifier */
@@ -42,7 +47,6 @@ export interface ReconciliationResult {
 export interface SorobanRpcClient {
   /**
    * Fetch all credit records from the on-chain contract.
-   * In production, this would call the Soroban RPC endpoint.
    */
   fetchAllCreditRecords(): Promise<OnChainCreditRecord[]>;
 }
@@ -77,21 +81,42 @@ export class ReconciliationService {
     };
 
     try {
-      // Fetch all credit lines from database
-      const dbCreditLines = await this.creditLineRepository.findAll(0, 10000);
+      const dbCreditLines = await fetchAllDbCreditLines(this.creditLineRepository);
       
       // Fetch all credit records from on-chain contract
       const chainRecords = await this.sorobanClient.fetchAllCreditRecords();
 
-      // Create lookup maps
-      const dbMap = new Map(dbCreditLines.map(cl => [cl.id, cl]));
-      const chainMap = new Map(chainRecords.map(cr => [cr.id, cr]));
-
       result.totalChecked = Math.max(dbCreditLines.length, chainRecords.length);
+
+      const duplicateDbWallets = findDuplicateWallets(dbCreditLines.map(cl => cl.walletAddress));
+      const duplicateChainWallets = findDuplicateWallets(chainRecords.map(cr => cr.walletAddress));
+      for (const walletAddress of duplicateDbWallets) {
+        result.errors.push(
+          reconciliationDiagnostic(`Duplicate database credit lines for borrower wallet ${walletAddress}`),
+        );
+      }
+      for (const walletAddress of duplicateChainWallets) {
+        result.errors.push(
+          reconciliationDiagnostic(`Duplicate on-chain credit records for borrower wallet ${walletAddress}`),
+        );
+      }
+
+      if (result.errors.length > 0) {
+        console.error(
+          '[ReconciliationService] Reconciliation failed:',
+          sanitizeJsonForStellarDiagnostics(result.errors)
+        );
+        return result;
+      }
+
+      // The credit contract enumerates stable numeric ids, while the backend DB
+      // owns UUID credit-line ids. Borrower wallet address is the shared natural key.
+      const dbMap = new Map(dbCreditLines.map(cl => [walletKey(cl.walletAddress), cl]));
+      const chainMap = new Map(chainRecords.map(cr => [walletKey(cr.walletAddress), cr]));
 
       // Check for records in DB but not on chain
       for (const dbLine of dbCreditLines) {
-        const chainRecord = chainMap.get(dbLine.id);
+        const chainRecord = chainMap.get(walletKey(dbLine.walletAddress));
         
         if (!chainRecord) {
           result.mismatches.push({
@@ -111,7 +136,7 @@ export class ReconciliationService {
 
       // Check for records on chain but not in DB
       for (const chainRecord of chainRecords) {
-        if (!dbMap.has(chainRecord.id)) {
+        if (!dbMap.has(walletKey(chainRecord.walletAddress))) {
           result.mismatches.push({
             creditLineId: chainRecord.id,
             walletAddress: chainRecord.walletAddress,
@@ -127,7 +152,7 @@ export class ReconciliationService {
       if (result.mismatches.length > 0) {
         console.error(
           `[ReconciliationService] Found ${result.mismatches.length} mismatches:`,
-          JSON.stringify(result.mismatches, null, 2)
+          sanitizeJsonForStellarDiagnostics(result.mismatches)
         );
       } else {
         console.log(
@@ -136,9 +161,9 @@ export class ReconciliationService {
       }
 
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
+      const errorMessage = sanitizeStellarDiagnostic(error);
       result.errors.push(errorMessage);
-      console.error('[ReconciliationService] Reconciliation failed:', error);
+      console.error('[ReconciliationService] Reconciliation failed:', errorMessage);
     }
 
     return result;
@@ -149,20 +174,32 @@ export class ReconciliationService {
     chainRecord: OnChainCreditRecord,
     mismatches: ReconciliationMismatch[]
   ): void {
+    const dbWalletKey = walletKey(dbLine.walletAddress);
+    const chainWalletKey = walletKey(chainRecord.walletAddress);
+
     // Compare wallet address
-    if (dbLine.walletAddress !== chainRecord.walletAddress) {
+    if (dbWalletKey !== chainWalletKey) {
       mismatches.push({
         creditLineId: dbLine.id,
-        walletAddress: dbLine.walletAddress,
+        walletAddress: dbWalletKey,
         field: 'walletAddress',
-        dbValue: dbLine.walletAddress,
-        chainValue: chainRecord.walletAddress,
+        dbValue: dbWalletKey,
+        chainValue: chainWalletKey,
         severity: 'critical',
+      });
+    } else if (dbLine.walletAddress !== chainRecord.walletAddress) {
+      mismatches.push({
+        creditLineId: dbLine.id,
+        walletAddress: dbWalletKey,
+        field: 'walletAddressFormatting',
+        dbValue: sanitizeStellarDiagnostic(dbLine.walletAddress),
+        chainValue: sanitizeStellarDiagnostic(chainRecord.walletAddress),
+        severity: 'warning',
       });
     }
 
     // Compare credit limit
-    if (dbLine.creditLimit !== chainRecord.creditLimit) {
+    if (!decimalStringsEqual(dbLine.creditLimit, chainRecord.creditLimit)) {
       mismatches.push({
         creditLineId: dbLine.id,
         walletAddress: dbLine.walletAddress,
@@ -174,7 +211,7 @@ export class ReconciliationService {
     }
 
     // Compare available credit
-    if (dbLine.availableCredit !== chainRecord.availableCredit) {
+    if (!decimalStringsEqual(dbLine.availableCredit, chainRecord.availableCredit)) {
       mismatches.push({
         creditLineId: dbLine.id,
         walletAddress: dbLine.walletAddress,
@@ -207,6 +244,84 @@ export class ReconciliationService {
         chainValue: chainRecord.status,
         severity: 'critical',
       });
+    }
+  }
+}
+
+function walletKey(walletAddress: string): string {
+  const trimmed = walletAddress.trim();
+
+  if (trimmed.length === 0) {
+    throw new Error('Borrower wallet address cannot be empty');
+  }
+
+  return trimmed;
+}
+
+function findDuplicateWallets(walletAddresses: string[]): string[] {
+  const seen = new Set<string>();
+  const duplicates = new Set<string>();
+
+  for (const walletAddress of walletAddresses) {
+    const key = walletKey(walletAddress);
+    if (seen.has(key)) {
+      duplicates.add(key);
+    }
+    seen.add(key);
+  }
+
+  return Array.from(duplicates);
+}
+
+function reconciliationDiagnostic(message: string): string {
+  return sanitizeStellarDiagnostic(message);
+}
+
+function decimalStringsEqual(left: string, right: string): boolean {
+  const leftDecimal = parseDecimalForComparison(left);
+  const rightDecimal = parseDecimalForComparison(right);
+
+  if (leftDecimal === undefined || rightDecimal === undefined) {
+    return left === right;
+  }
+
+  return leftDecimal.value === rightDecimal.value && leftDecimal.scale === rightDecimal.scale;
+}
+
+function parseDecimalForComparison(value: string): { value: bigint; scale: number } | undefined {
+  const match = /^([+-]?)(\d+)(?:\.(\d+))?$/.exec(value.trim());
+  if (!match) {
+    return undefined;
+  }
+
+  const sign = match[1] === '-' ? -1n : 1n;
+  const whole = match[2] ?? '0';
+  const fraction = (match[3] ?? '').replace(/0+$/, '');
+  const digits = `${whole}${fraction}`.replace(/^0+/, '') || '0';
+  const magnitude = BigInt(digits);
+
+  if (magnitude === 0n) {
+    return { value: 0n, scale: 0 };
+  }
+
+  return { value: sign * magnitude, scale: fraction.length };
+}
+
+async function fetchAllDbCreditLines(repository: CreditLineRepository): Promise<CreditLine[]> {
+  const all: CreditLine[] = [];
+
+  for (let offset = 0; ; offset += RECONCILIATION_DB_PAGE_SIZE) {
+    const page = await repository.findAll(offset, RECONCILIATION_DB_PAGE_SIZE);
+    all.push(...page);
+
+    if (all.length > RECONCILIATION_MAX_DB_RECORDS) {
+      throw new Error(
+        `Reconciliation exceeded ${RECONCILIATION_MAX_DB_RECORDS} database credit lines; shard or raise the configured cap`,
+      );
+    }
+
+    if (page.length < RECONCILIATION_DB_PAGE_SIZE) {
+      return all;
     }
   }
 }

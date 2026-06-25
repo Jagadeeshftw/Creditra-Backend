@@ -16,7 +16,7 @@ flowchart LR
     HND --> SVC[CreditLineService / TransactionRepository]
 
     DB[(PostgreSQL)] -->|findAll| RCS
-    SRPC[(Soroban RPC)] -->|fetchAllCreditRecords| SOR[MockSorobanClient]
+    SRPC[(Soroban RPC)] -->|enumerate_credit_lines| SOR[StellarSorobanClient / Mock fallback]
     SOR --> RCS[ReconciliationService]
     RCS --> JQ[jobQueue]
     JQ --> RCW[ReconciliationWorker]
@@ -28,7 +28,7 @@ flowchart LR
 |---|---|---|
 | `horizonListener` | Polls Horizon for contract events, emits to handlers | [`src/services/horizonListener.ts`](../src/services/horizonListener.ts) |
 | `drawWebhookService` | Receives confirmed events, fans them out to subscribers | [`src/services/drawWebhookService.ts`](../src/services/drawWebhookService.ts) |
-| `SorobanRpcClient` | Read-only on-chain queries and tx submission | [`src/services/sorobanRpcClient.ts`](../src/services/sorobanRpcClient.ts) |
+| `StellarSorobanClient` / `MockSorobanClient` | Reconciliation read path for enumerating Credit contract records | [`src/services/sorobanClient.ts`](../src/services/sorobanClient.ts) |
 | `ReconciliationService` | Diffs DB vs chain, classifies mismatches | [`src/services/reconciliationService.ts`](../src/services/reconciliationService.ts) |
 | `ReconciliationWorker` | Schedules reconciliation jobs on an interval | [`src/services/reconciliationWorker.ts`](../src/services/reconciliationWorker.ts) |
 | `jobQueue` | In-process, at-least-once queue with retry & dead-letter | [`src/services/jobQueue.ts`](../src/services/jobQueue.ts) |
@@ -118,7 +118,7 @@ sequenceDiagram
 
     Cron->>JQ: enqueue("reconcile")
     JQ->>RCS: handler
-    RCS->>Repo: findAll(0, 10 000)
+    RCS->>Repo: findAll(offset, 1 000) until exhausted or cap exceeded
     RCS->>SRPC: fetchAllCreditRecords()
     par per credit line
       RCS->>RCS: compare fields
@@ -129,10 +129,37 @@ sequenceDiagram
 
 ### 6.1 Compared fields
 
+`ReconciliationService` reads on-chain state through `createSorobanClient()`.
+An empty `CREDIT_CONTRACT_ID` deliberately selects `MockSorobanClient` for
+local development and tests. A non-empty contract id selects
+`StellarSorobanClient`, which builds read-only `simulateTransaction` requests
+against the Credit contract's `enumerate_credit_lines(start_after, limit)`
+query and follows the contract's stable numeric cursor in pages of 100.
+
+The contract returns `(u32, CreditLineData)` entries. The numeric id is the
+contract enumeration cursor, not the backend database UUID, so reconciliation
+matches DB rows and chain rows by borrower wallet address. `availableCredit` is
+computed from `credit_limit - utilized_amount`; it is not expected as a stored
+contract field. Timeout, retry, and jitter are controlled by
+`SOROBAN_TIMEOUT_MS`, `SOROBAN_MAX_RETRIES`, and `SOROBAN_RETRY_JITTER_MS`.
+Thrown and logged diagnostics redact Stellar public keys and secret seeds. If
+either source has duplicate rows for the same borrower wallet, reconciliation
+records an error instead of guessing which DB UUID belongs to which contract
+cursor.
+
+Contract compatibility is pinned in
+[`src/services/__fixtures__/soroban/credit-contract-interface.v1.json`](../src/services/__fixtures__/soroban/credit-contract-interface.v1.json)
+against `Creditra/Creditra-Contracts@3f3ef2f318641005e3b2fb970df8e54f927ce606`.
+The fixture captures the `enumerate_credit_lines(start_after: Option<u32>,
+limit: u32) -> Vec<(u32, CreditLineData)>` surface, the `u32` cursor, the
+100-record page cap, `CreditLineData` field order, and `CreditStatus`
+discriminants.
+
 | Field | Severity if mismatched |
 |---|---|
 | Existence (DB has, chain doesn't, or vice versa) | **critical** |
-| `walletAddress` (identity drift) | **critical** |
+| `walletAddress` identity drift | **critical** |
+| `walletAddressFormatting` | **warning** |
 | `creditLimit` | **critical** |
 | `status` | **critical** |
 | `availableCredit` | **warning** |
@@ -149,7 +176,7 @@ sequenceDiagram
 
 - Critical mismatches → the worker's job handler throws. `jobQueue` retains the job for retry up to `maxAttempts` (default 3) with a visibility-timeout delay; after the budget is exhausted the job lands on the dead-letter list (`getFailedJobs()`).
 - Warnings → logged with redaction, no retry.
-- The reconciliation pass itself is stateless — there is no cursor to corrupt. Each invocation is a fresh comparison of the full set, capped at 10 000 lines per pull. For larger fleets the service is designed to be sharded by borrower or limit-band; see TODO in [`docs/reconciliation.md`](./reconciliation.md).
+- The reconciliation pass itself is stateless — there is no cursor to corrupt. Each invocation pages database rows in batches of 1 000 and fails loudly if the database side exceeds 10 000 records, so row 10 001 is never silently skipped. For larger fleets the service is designed to be sharded by borrower or limit-band; see TODO in [`docs/reconciliation.md`](./reconciliation.md).
 
 ---
 
@@ -197,7 +224,7 @@ This wiring is intentionally not in the default container so the in-memory liste
 - [`src/services/reconciliationService.ts`](../src/services/reconciliationService.ts)
 - [`src/services/reconciliationWorker.ts`](../src/services/reconciliationWorker.ts)
 - [`src/services/jobQueue.ts`](../src/services/jobQueue.ts)
-- [`src/services/sorobanRpcClient.ts`](../src/services/sorobanRpcClient.ts)
+- [`src/services/sorobanClient.ts`](../src/services/sorobanClient.ts)
 - [`src/services/drawWebhookService.ts`](../src/services/drawWebhookService.ts)
 - [`docs/HORIZON_LISTENER_CONFIG.md`](./HORIZON_LISTENER_CONFIG.md)
 - [`docs/reconciliation.md`](./reconciliation.md)

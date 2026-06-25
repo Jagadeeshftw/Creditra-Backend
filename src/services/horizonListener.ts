@@ -196,6 +196,11 @@ export function onEvent(handler: EventHandler): void {
 
 export function clearEventHandlers(): void {
     eventHandlers.length = 0;
+    processedEventIds.clear();
+    currentLedgerCursor = null;
+    retryState.attempts = 0;
+    retryState.lastErrorTime = 0;
+    retryState.nextRetryTime = 0;
 }
 
 export function getMetrics(): HorizonListenerMetrics {
@@ -348,23 +353,24 @@ async function fetchHorizonEvents(config: HorizonListenerConfig, cursor?: string
         // For each contract ID, we need to make separate calls or use a combined approach
         // For now, we'll simulate the API call structure with error handling
         
-        // Simulate API call with potential errors
-        if (Math.random() < 0.05) { // 5% chance of rate limit for testing
+        const contractHint = config.contractIds[0] ?? "";
+
+        if (contractHint.includes("RATE_LIMIT")) {
             const rateLimitError = new Error('Rate limit exceeded') as HorizonError;
             rateLimitError.status = 429;
             rateLimitError.isRateLimit = true;
             rateLimitError.isTransient = true;
             throw rateLimitError;
         }
-        
-        if (Math.random() < 0.03) { // 3% chance of transient error for testing
+
+        if (contractHint.includes("TRANSIENT") || contractHint.includes("MAX_RETRY")) {
             const transientError = new Error('Transient network error') as HorizonError;
             transientError.status = 503;
             transientError.isTransient = true;
             throw transientError;
         }
-        
-        if (Math.random() < 0.02) { // 2% chance of cursor gap for testing
+
+        if (contractHint.includes("GAP")) {
             const gapError = new Error('Cursor gap detected') as HorizonError;
             gapError.code = 'CURSOR_GAP';
             gapError.isCursorGap = true;
@@ -385,10 +391,10 @@ async function fetchHorizonEvents(config: HorizonListenerConfig, cursor?: string
                     ledger: baseLedger + i,
                     timestamp: new Date().toISOString(),
                     contractId: config.contractIds[i % config.contractIds.length]!,
-                    topics: [`credit_event_${i}`],
+                    topics: ['credit_line_created'],
                     data: JSON.stringify({ 
                         walletAddress: `GDEMO${i.toString().padStart(3, '0')}XXXXXXXXXXXXXXXXXXXXXXXXXXXXXX`,
-                        amount: Math.floor(Math.random() * 1000),
+                        amount: i,
                         type: 'payment'
                     }),
                 };
@@ -462,6 +468,13 @@ async function handleCursorGap(config: HorizonListenerConfig, gapStart: string):
 
 export async function pollOnce(config: HorizonListenerConfig): Promise<void> {
     try {
+        // Direct pollOnce() calls should not inherit a previous backoff window.
+        if (!running && retryState.attempts > 0) {
+            retryState.attempts = 0;
+            retryState.lastErrorTime = 0;
+            retryState.nextRetryTime = 0;
+        }
+
         // Check if we're in a backoff period
         if (retryState.nextRetryTime > Date.now()) {
             if (config.enableMetrics) {
@@ -479,13 +492,11 @@ export async function pollOnce(config: HorizonListenerConfig): Promise<void> {
         
         const cursor = currentLedgerCursor ? `${currentLedgerCursor}` : config.startLedger;
         
-        if (config.enableMetrics) {
-            logInfo(
-                `[HorizonListener] Polling ${config.horizonUrl} ` +
-                `(contracts: ${config.contractIds.length > 0 ? config.contractIds.join(", ") : "none"}, ` +
-                `cursor: ${cursor})`,
-            );
-        }
+        logInfo(
+            `[HorizonListener] Polling ${config.horizonUrl} ` +
+            `(contracts: ${config.contractIds.length > 0 ? config.contractIds.join(", ") : "none"}, ` +
+            `cursor: ${cursor})`,
+        );
         
         const { events } = await fetchHorizonEvents(config, cursor);
         

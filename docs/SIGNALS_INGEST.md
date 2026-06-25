@@ -145,7 +145,7 @@ Enforced at every layer:
 Creditra is built on the assumption that **the wallet address is pseudonymous but not private**. We still apply minimization:
 
 - **Logs.** All Stellar addresses pass through `redactLogArgs` ([`src/utils/logRedact.ts`](../src/utils/logRedact.ts)); the request logger truncates wallet fields to `first 6 + last 4` chars before emitting structured logs ([`src/middleware/requestLogger.ts`](../src/middleware/requestLogger.ts)).
-- **Errors.** `sorobanRpcClient` strips private and public keys (`G[A-Z2-7]{55}` regex) from any error string before re-raising.
+- **Errors.** Stellar diagnostics pass through [`sanitizeStellarDiagnostic`](../src/services/stellarDiagnostics.ts), which strips public and secret keys from error text before logging or returning diagnostics.
 - **Bodies.** Inputs are accepted into `req.body` only after Zod parse — extraneous fields are dropped (`additionalProperties: false`).
 - **Storage.** The `risk_evaluations.inputs` JSONB stores only the normalized `factors[]`. Raw upstream API responses from `ExternalApiRiskProvider` are **not** persisted; we keep the model output, not the model input.
 - **Retention.** Each evaluation TTLs after 24 h via `expiresAt`. The provided `cleanupExpiredEvaluations()` hook lets operators run a periodic eviction. Historical evaluations may be kept indefinitely for protocol auditability — that decision belongs to the deployment, not the codebase.
@@ -155,14 +155,14 @@ Creditra is built on the assumption that **the wallet address is pseudonymous bu
 
 ## 5. On-chain Handoff
 
-The off-chain risk pipeline does not move money. It produces two scalars: `creditLimit` and `interestRateBps`. Those scalars feed the on-chain Soroban contract via `SorobanRpcClient.submitTransaction`.
+The off-chain risk pipeline does not move money. It produces two scalars: `creditLimit` and `interestRateBps`. Those scalars are inputs to the signed Soroban `open_credit_line` transaction.
 
 ```mermaid
 sequenceDiagram
     autonumber
     participant API
     participant RES as RiskEvaluationService
-    participant SRPC as SorobanRpcClient
+    participant Wallet as Caller wallet
     participant Contract as Creditra-Contracts (Soroban)
     participant Horizon
     participant HL as horizonListener
@@ -170,17 +170,17 @@ sequenceDiagram
 
     API->>RES: evaluateRisk(addr)
     RES-->>API: { creditLimit, interestRateBps }
-    API->>SRPC: submit(open_credit_line tx)
-    SRPC->>Contract: simulate + send
-    Contract-->>SRPC: txId
+    API-->>Wallet: return underwriting scalars
+    Wallet->>Contract: submit signed open_credit_line tx
+    Contract-->>Wallet: txId
     Contract->>Horizon: emits event
     HL->>Horizon: poll(cursor)
     Horizon-->>HL: event(s)
     HL->>DWS: HMAC POST draw_confirmed
 ```
 
-- **Contract surface used by the backend** lives in the `Creditra-Contracts` repo; the backend addresses it by `CREDIT_CONTRACT_ID` and chain `STELLAR_NETWORK_PASSPHRASE` (see [`src/services/sorobanClient.ts`](../src/services/sorobanClient.ts)).
-- **Reads** go through `simulateContractRead` — gas-free simulation against pinned ledger state.
+- **Contract surface used by the backend** lives in the `Creditra-Contracts` repo; reconciliation reads address it by `CREDIT_CONTRACT_ID` and chain `STELLAR_NETWORK_PASSPHRASE` (see [`src/services/sorobanClient.ts`](../src/services/sorobanClient.ts)).
+- **Reads** go through `StellarSorobanClient` read-only simulation against pinned ledger state.
 - **Writes** are signed transactions submitted by the calling wallet; the backend never holds borrower keys.
 - **Confirmation** comes back through the indexer (§INDEXER.md) and is fanned out to subscribers as a `draw_confirmed` webhook.
 

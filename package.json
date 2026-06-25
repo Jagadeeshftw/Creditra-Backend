@@ -37,20 +37,26 @@
     "test:coverage": "vitest run --coverage",
     "db:migrate": "tsx src/db/migrate-cli.ts",
     "db:validate": "tsx src/db/validate-cli.ts",
-    "validate:spec": "node --input-type=module <<< \"import fs from 'fs'; import yaml from 'yaml'; yaml.parse(fs.readFileSync('src/openapi.yaml','utf8')); console.log('✅ OpenAPI spec valid');\"",
+    "validate:spec": "node --input-type=module -e \"import fs from 'fs'; import yaml from 'yaml'; yaml.parse(fs.readFileSync('src/openapi.yaml','utf8')); console.log('OpenAPI spec valid');\"",
     "load:smoke": "k6 run scripts/load/smoke.js",
     "load:stress": "k6 run scripts/load/stress.js",
     "load:spike": "k6 run scripts/load/spike.js"
   },
   "dependencies": {
+    "@stellar/stellar-sdk": "^15.1.0",
     "cors": "^2.8.5",
-    "express": "^4.18.2",
+    "express": "^4.22.2",
     "pg": "^8.11.3",
     "pino": "^10.3.1",
     "pino-http": "^11.0.0",
     "swagger-ui-express": "^5.0.1",
     "yaml": "^2.8.3",
     "zod": "^4.3.6"
+  },
+  "overrides": {
+    "axios": "^1.18.0",
+    "form-data": "^4.0.6",
+    "qs": "^6.15.2"
   },
   "devDependencies": {
     "@types/cors": "^2.8.17",

@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach, vi } from "vitest";
+import { describe, it, expect, afterEach } from "vitest";
 import { createRiskProvider } from "../providerFactory.js";
 import { StaticRiskProvider } from "../StaticRiskProvider.js";
 import { RulesEngineRiskProvider } from "../RulesEngineRiskProvider.js";

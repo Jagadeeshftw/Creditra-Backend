@@ -20,7 +20,8 @@ The credit reconciliation job compares on-chain Credit contract records with dat
 
 3. **SorobanClient** (`src/services/sorobanClient.ts`)
    - Interfaces with Soroban RPC to fetch on-chain credit records
-   - Currently a mock implementation (replace with actual Soroban SDK calls)
+   - Selects `MockSorobanClient` when `CREDIT_CONTRACT_ID` is empty
+   - Selects `StellarSorobanClient` for read-only `enumerate_credit_lines` calls when a contract id is configured
 
 4. **Reconciliation Routes** (`src/routes/reconciliation.ts`)
    - Admin endpoints for manual triggers and status checks
@@ -34,6 +35,9 @@ Environment variables:
 SOROBAN_RPC_URL=https://soroban-testnet.stellar.org
 CREDIT_CONTRACT_ID=<your-contract-id>
 STELLAR_NETWORK_PASSPHRASE=Test SDF Network ; September 2015
+SOROBAN_TIMEOUT_MS=30000
+SOROBAN_MAX_RETRIES=3
+SOROBAN_RETRY_JITTER_MS=1000
 
 # Reconciliation worker configuration
 RECONCILIATION_INTERVAL_MS=3600000  # Default: 1 hour
@@ -84,7 +88,8 @@ The reconciliation service compares the following fields:
 | Field | Severity | Description |
 |-------|----------|-------------|
 | existence | critical | Record exists in one system but not the other |
-| walletAddress | critical | Wallet address mismatch |
+| walletAddress | critical | Normalized wallet identity mismatch |
+| walletAddressFormatting | warning | Raw wallet formatting differs after normalized identity matches |
 | creditLimit | critical | Credit limit mismatch |
 | status | critical | Status mismatch (active, suspended, closed) |
 | availableCredit | warning | Available credit mismatch |
@@ -102,39 +107,36 @@ Failed jobs can be inspected via the `/api/reconciliation/status` endpoint.
 
 ## Production Implementation
 
-To integrate with actual Soroban contracts:
+`Container` calls `createSorobanClient()`. Leave `CREDIT_CONTRACT_ID` empty for
+test and local mock behavior, or set a deployed Credit contract id to enable
+`StellarSorobanClient`. The real client builds read-only `simulateTransaction`
+requests for `enumerate_credit_lines(start_after, limit)`, decodes returned
+ScVal/XDR into `OnChainCreditRecord`, computes `availableCredit` from
+`credit_limit - utilized_amount`, and records typed decode failures in
+`ReconciliationResult.errors[]`.
 
-1. Install Stellar SDK:
-   ```bash
-   npm install @stellar/stellar-sdk
-   ```
+The expected contract ABI is checked in at
+`src/services/__fixtures__/soroban/credit-contract-interface.v1.json`, pinned to
+`Creditra/Creditra-Contracts@3f3ef2f318641005e3b2fb970df8e54f927ce606`.
+Compatibility tests assert the backend call shape, cursor type, page limit,
+`CreditLineData` field order, and `CreditStatus` discriminants against that
+fixture.
 
-2. Replace `MockSorobanClient` in `src/services/sorobanClient.ts`:
-   ```typescript
-   import { SorobanRpc, Contract } from '@stellar/stellar-sdk';
-   
-   export class SorobanClient implements SorobanRpcClient {
-     private server: SorobanRpc.Server;
-     
-     constructor(private config: SorobanClientConfig) {
-       this.server = new SorobanRpc.Server(config.rpcUrl);
-     }
-     
-     async fetchAllCreditRecords(): Promise<OnChainCreditRecord[]> {
-       // Call contract method to list all credit lines
-       // Parse XDR responses into OnChainCreditRecord format
-     }
-   }
-   ```
+The contract enumeration cursor is not the backend UUID. Reconciliation matches
+records by borrower wallet address and fails the pass with an explicit error if
+either side contains duplicate borrower wallets, because those rows cannot be
+paired safely without another shared key.
 
-3. Update Container to use real SorobanClient instead of MockSorobanClient
+Database rows are fetched in pages of 1,000. A pass fails with a sanitized
+`ReconciliationResult.errors[]` entry if more than 10,000 database credit lines
+would need to be compared, rather than silently ignoring records beyond the cap.
 
 ## Security Considerations
 
 - API endpoints require admin authentication (X-API-Key)
 - Soroban RPC calls should use read-only operations
 - No private keys are stored or used (read-only reconciliation)
-- Failed jobs are logged but do not expose sensitive data
+- Failed jobs and Soroban diagnostics redact Stellar public keys and secret seeds
 - Consider rate limiting for manual trigger endpoint
 
 ## Testing

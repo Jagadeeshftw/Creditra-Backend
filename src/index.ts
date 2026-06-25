@@ -10,7 +10,12 @@ import { creditRouter } from "./routes/credit.js";
 import { riskRouter } from "./routes/risk.js";
 import { healthRouter } from "./routes/health.js";
 import { webhookRouter } from "./routes/webhook.js";
+import { reconciliationRouter } from "./routes/reconciliation.js";
 import { errorHandler } from "./middleware/errorHandler.js";
+import { requestLogger } from "./middleware/requestLogger.js";
+import { createIpKeyGenerator, createRateLimitMiddleware } from "./middleware/rateLimit.js";
+import { loadCorsPolicy, isAllowedCorsOrigin } from "./config/cors.js";
+import { loadRateLimitConfig } from "./config/rateLimit.js";
 import { Container } from "./container/Container.js";
 import { initializeWebhooks } from "./services/drawWebhookService.js";
 
@@ -30,7 +35,29 @@ const SHUTDOWN_TIMEOUT_MS = parseInt(
   10,
 );
 
-app.use(cors());
+const corsPolicy = loadCorsPolicy();
+const rateLimitConfig = loadRateLimitConfig();
+const appRateLimitConfig =
+  process.env.NODE_ENV === "test"
+    ? {
+        default: { ...rateLimitConfig.default, maxRequests: Number.MAX_SAFE_INTEGER },
+        evaluate: { ...rateLimitConfig.evaluate, maxRequests: Number.MAX_SAFE_INTEGER },
+      }
+    : rateLimitConfig;
+const defaultRateLimit = createRateLimitMiddleware({
+  ...appRateLimitConfig.default,
+  keyGenerator: createIpKeyGenerator(),
+});
+const evaluateRateLimit = createRateLimitMiddleware({
+  ...appRateLimitConfig.evaluate,
+  keyGenerator: createIpKeyGenerator(),
+});
+
+app.use(cors({
+  origin(origin, callback) {
+    callback(null, isAllowedCorsOrigin(origin, corsPolicy));
+  },
+}));
 
 // Reject bodies on mutating requests that don't declare application/json.
 app.use((req, res, next) => {
@@ -62,9 +89,12 @@ app.get("/docs.json", (_req, res) => {
   res.json(openapiSpec);
 });
 
-app.use("/api/credit", creditRouter);
+app.use("/api/credit", defaultRateLimit, creditRouter);
+app.use("/api/risk/evaluate", evaluateRateLimit);
+app.use("/api/risk/wallet", defaultRateLimit);
 app.use("/api/risk", riskRouter);
 app.use("/api/webhooks", webhookRouter);
+app.use("/api/reconciliation", reconciliationRouter);
 
 // Global error handler — must be registered after routes
 app.use(errorHandler);

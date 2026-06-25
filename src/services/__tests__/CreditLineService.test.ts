@@ -36,6 +36,7 @@ describe('CreditLineService', () => {
         walletAddress: request.walletAddress,
         creditLimit: request.creditLimit,
         availableCredit: request.creditLimit,
+        utilized: '0',
         interestRateBps: request.interestRateBps,
         status: CreditLineStatus.ACTIVE,
         createdAt: new Date(),
@@ -88,6 +89,7 @@ describe('CreditLineService', () => {
         walletAddress: 'GBAHQCUPC7G2B4D2F2I2K2M2O2Q2S2U2W2Y2A2C2E2G2I2K2M2O2Q2S1',
         creditLimit: '1000.00',
         availableCredit: '1000.00',
+        utilized: '0',
         interestRateBps: 500,
         status: CreditLineStatus.ACTIVE,
         createdAt: new Date(),
@@ -119,6 +121,7 @@ describe('CreditLineService', () => {
           walletAddress: 'GBAHQCUPC7G2B4D2F2I2K2M2O2Q2S2U2W2Y2A2C2E2G2I2K2M2O2Q2S1',
           creditLimit: '1000.00',
           availableCredit: '1000.00',
+          utilized: '0',
           interestRateBps: 500,
           status: CreditLineStatus.ACTIVE,
           createdAt: new Date(),
@@ -147,6 +150,7 @@ describe('CreditLineService', () => {
         walletAddress: 'GBAHQCUPC7G2B4D2F2I2K2M2O2Q2S2U2W2Y2A2C2E2G2I2K2M2O2Q2S1',
         creditLimit: '2000.00',
         availableCredit: '2000.00',
+        utilized: '0',
         interestRateBps: 600,
         status: CreditLineStatus.ACTIVE,
         createdAt: new Date(),
@@ -203,7 +207,7 @@ describe('CreditLineService', () => {
   describe('getAllCreditLines', () => {
     it('should return all credit lines successfully with valid pagination', async () => {
       const creditLines: CreditLine[] = [
-        { id: 'cl-1', walletAddress: 'w1', creditLimit: '100', availableCredit: '100', interestRateBps: 500, status: CreditLineStatus.ACTIVE, createdAt: new Date(), updatedAt: new Date() }
+        { id: 'cl-1', walletAddress: 'w1', creditLimit: '100', availableCredit: '100', utilized: '0', interestRateBps: 500, status: CreditLineStatus.ACTIVE, createdAt: new Date(), updatedAt: new Date() }
       ];
       vi.mocked(mockRepository.findAll).mockResolvedValue(creditLines);
 
@@ -232,7 +236,7 @@ describe('CreditLineService', () => {
   describe('getAllCreditLinesWithCursor', () => {
     it('should return credit lines with cursor pagination', async () => {
       const creditLines: CreditLine[] = [
-        { id: 'cl-1', walletAddress: 'w1', creditLimit: '100', availableCredit: '100', interestRateBps: 500, status: CreditLineStatus.ACTIVE, createdAt: new Date(), updatedAt: new Date() }
+        { id: 'cl-1', walletAddress: 'w1', creditLimit: '100', availableCredit: '100', utilized: '0', interestRateBps: 500, status: CreditLineStatus.ACTIVE, createdAt: new Date(), updatedAt: new Date() }
       ];
       
       const mockResult = {

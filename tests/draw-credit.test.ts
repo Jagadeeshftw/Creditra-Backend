@@ -59,7 +59,7 @@ describe('POST /api/credit/lines/:id/draw', () => {
 
      it('should return 400 when body is empty', async () => {
           const res = await request(app)
-               .post(`/api/credit/lines/${lineId}/draw`)
+               .post('/api/credit/lines/line-1/draw')
                .send({});
 
           expect(res.status).toBe(400);

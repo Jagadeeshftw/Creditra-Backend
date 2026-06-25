@@ -81,14 +81,19 @@ describe('InMemoryCreditLineRepository', () => {
       const walletAddress = 'wallet-sort';
 
       const cl1 = await repository.create({ walletAddress, creditLimit: '1000.00', interestRateBps: 500 });
-      // ensure different timestamps
-      await new Promise((r) => setTimeout(r, 1));
       const cl2 = await repository.create({ walletAddress, creditLimit: '2000.00', interestRateBps: 600 });
+      const olderCreatedAt = new Date('2026-01-01T00:00:00.000Z');
+      const newerCreatedAt = new Date('2026-01-01T00:00:01.000Z');
+      const olderCreditLine = { ...cl1, createdAt: olderCreatedAt };
+      const newerCreditLine = { ...cl2, createdAt: newerCreatedAt };
+
+      repository['creditLines'].set(cl1.id, olderCreditLine);
+      repository['creditLines'].set(cl2.id, newerCreditLine);
 
       const results = await repository.findByWalletAddress(walletAddress);
       expect(results).toHaveLength(2);
-      expect(results[0]).toEqual(cl2);
-      expect(results[1]).toEqual(cl1);
+      expect(results[0]).toEqual(newerCreditLine);
+      expect(results[1]).toEqual(olderCreditLine);
     });
 
     it('should use deterministic ordering when timestamps are equal', async () => {
@@ -132,9 +137,8 @@ describe('InMemoryCreditLineRepository', () => {
 
     it('should return all credit lines sorted by creation date (newest first)', async () => {
       // Create 3 credit lines with slight delays
-      const cls = [] as any[];
       for (let i = 0; i < 3; i++) {
-        cls.push(await repository.create({ walletAddress: `w${i}`, creditLimit: '1000.00', interestRateBps: 500 }));
+        await repository.create({ walletAddress: `w${i}`, creditLimit: '1000.00', interestRateBps: 500 });
         await new Promise(r => setTimeout(r, 1));
       }
 
@@ -387,7 +391,7 @@ describe('InMemoryCreditLineRepository', () => {
 
       // Fetch all pages
       const allItems = [];
-      let cursor: string | null = undefined;
+      let cursor: string | null | undefined = undefined;
       
       do {
         const result = await repository.findAllWithCursor(cursor || undefined, 3);

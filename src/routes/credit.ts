@@ -37,8 +37,6 @@ import {
   CreditLineNotFoundError,
   InvalidTransitionError,
   TransactionType,
-  listCreditLines,
-  getCreditLine,
   suspendCreditLine,
   closeCreditLine,
   getTransactions,
@@ -75,30 +73,71 @@ function handleServiceError(err: unknown, res: Response): void {
   res.status(500).json({ error: message });
 }
 
-creditRouter.get('/lines', (_req, res) => {
-  return ok(res, listCreditLines());
+function parseIntegerQuery(value: unknown, defaultValue: number): number {
+  if (value === undefined || value === '') {
+    return defaultValue;
+  }
+  return Number.parseInt(String(value), 10);
+}
+
+creditRouter.get('/lines', async (req, res) => {
+  const limit = parseIntegerQuery(req.query.limit, 100);
+
+  try {
+    if ('cursor' in req.query) {
+      const cursorValue = req.query.cursor;
+      const cursor = typeof cursorValue === 'string' && cursorValue.length > 0
+        ? cursorValue
+        : undefined;
+      const result = await container.creditLineService.getAllCreditLinesWithCursor(cursor, limit);
+
+      return res.json({
+        creditLines: result.items,
+        pagination: {
+          limit,
+          nextCursor: result.nextCursor,
+          hasMore: result.hasMore,
+        },
+      });
+    }
+
+    const offset = parseIntegerQuery(req.query.offset, 0);
+    const creditLines = await container.creditLineService.getAllCreditLines(offset, limit);
+    const total = await container.creditLineService.getCreditLineCount();
+
+    return ok(res, {
+      creditLines,
+      pagination: { total, offset, limit },
+    });
+  } catch (error) {
+    return fail(res, error instanceof Error ? error : undefined, 400);
+  }
 });
 
-creditRouter.get('/lines/:id', (req, res) => {
-  const line = getCreditLine(req.params.id);
-  if (!line) {
-    return fail(res, `Credit line "${req.params.id}" not found.`, 404);
+creditRouter.get('/lines/:id', async (req, res) => {
+  try {
+    const line = await container.creditLineService.getCreditLine(req.params.id);
+    if (!line) {
+      return fail(res, 'Credit line not found', 404);
+    }
+    return ok(res, line);
+  } catch {
+    return fail(res, 'Internal server error');
   }
-  return ok(res, line);
 });
 
 creditRouter.post('/lines', validateBody(createCreditLineSchema), async (req, res) => {
   try {
-    const { walletAddress, requestedLimit } = req.body ?? {};
+    const { walletAddress, creditLimit, requestedLimit, interestRateBps } = req.body ?? {};
+    const finalLimit = creditLimit ?? requestedLimit;
     const creditLine = await container.creditLineService.createCreditLine({
       walletAddress,
       creditLimit: finalLimit,
       interestRateBps: interestRateBps ?? 0,
     });
-    return res.status(201).json(creditLine);
+    return ok(res, creditLine, 201);
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'Failed to create credit line';
-    return res.status(400).json({ error: message });
+    return fail(res, error instanceof Error ? error : undefined, 400);
   }
 });
 
@@ -113,10 +152,9 @@ creditRouter.put('/lines/:id', async (req, res) => {
     if (!creditLine) {
       return fail(res, 'Credit line not found', 404);
     }
-    return res.json(creditLine);
+    return ok(res, creditLine);
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'Failed to update credit line';
-    return res.status(400).json({ error: message });
+    return fail(res, error instanceof Error ? error : undefined, 400);
   }
 });
 
@@ -128,21 +166,20 @@ creditRouter.delete('/lines/:id', async (req, res) => {
     }
     return res.status(204).send();
   } catch {
-    return fail(res, 'Failed to delete credit line');
+    return fail(res, 'Internal server error');
   }
 });
 
 creditRouter.get(
   '/wallet/:walletAddress/lines',
-  validateParams(walletAddressParamSchema),
   async (req, res) => {
   try {
     const lines = await container.creditLineService.getCreditLinesByWallet(
       req.params.walletAddress,
     );
-    res.json({ creditLines: lines });
+    ok(res, { creditLines: lines });
   } catch {
-    res.status(500).json({ error: 'Failed to fetch credit lines for wallet' });
+    fail(res, 'Internal server error');
   }
 });
 
@@ -198,7 +235,7 @@ creditRouter.post(
       const line = suspendCreditLine(req.params.id);
       res.status(200).json({ data: line, message: 'Credit line suspended.', error: null });
     } catch (err) {
-      handleServiceError(err, req, res, next);
+      handleServiceError(err, res);
     }
   },
 );
@@ -211,7 +248,7 @@ creditRouter.post(
       const line = closeCreditLine(req.params.id);
       res.status(200).json({ data: line, message: 'Credit line closed.', error: null });
     } catch (err) {
-      handleServiceError(err, req, res, next);
+      handleServiceError(err, res);
     }
   },
 );

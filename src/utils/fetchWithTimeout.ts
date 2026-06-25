@@ -68,6 +68,26 @@ export function getDefaultTimeouts(): FetchTimeoutConfig {
   };
 }
 
+function mergeAbortSignals(signal: AbortSignal | undefined, timeoutSignal: AbortSignal): AbortSignal {
+  if (!signal) {
+    return timeoutSignal;
+  }
+  if (signal.aborted) {
+    return signal;
+  }
+  if (timeoutSignal.aborted) {
+    return timeoutSignal;
+  }
+
+  const controller = new AbortController();
+  const abort = (): void => controller.abort();
+
+  signal.addEventListener('abort', abort, { once: true });
+  timeoutSignal.addEventListener('abort', abort, { once: true });
+
+  return controller.signal;
+}
+
 // ---------------------------------------------------------------------------
 // Core implementation
 // ---------------------------------------------------------------------------
@@ -110,10 +130,7 @@ export async function fetchWithTimeout(
   const timeoutId = setTimeout(() => controller.abort(), totalTimeoutMs);
 
   try {
-    // Merge abort signal with user-provided signal if any
-    const signal = options.signal
-      ? AbortSignal.any([options.signal, controller.signal])
-      : controller.signal;
+    const signal = mergeAbortSignals(options.signal ?? undefined, controller.signal);
 
     const response = await fetch(url, {
       ...options,

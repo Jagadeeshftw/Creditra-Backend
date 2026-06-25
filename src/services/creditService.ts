@@ -17,7 +17,7 @@
  * container.
  */
 import { randomUUID } from 'node:crypto';
-import { creditLines } from '../models/creditLineStore.js';
+import { creditLines, type CreditLineStatus as StoredCreditLineStatus } from '../models/creditLineStore.js';
 import { TransactionType } from '../models/Transaction.js';
 import type { DrawBody, RepayBody } from '../schemas/index.js';
 
@@ -32,11 +32,25 @@ interface DrawRequest {
 export function drawFromCreditLine({ id, borrowerId, amount }: DrawRequest) {
   const line = creditLines.find((l) => l.id === id);
 
-  if (!line) throw new Error('NOT_FOUND');
-  if (line.status !== 'Active') throw new Error('INVALID_STATUS');
-  if (line.borrowerId !== borrowerId) throw new Error('UNAUTHORIZED');
-  if (amount <= 0) throw new Error('INVALID_AMOUNT');
-  if (line.utilized + amount > line.limit) throw new Error('OVER_LIMIT');
+  if (!line) throw new CreditLineNotFoundError(id);
+  if (line.status !== 'Active') {
+    throw new InvalidTransitionError(normalizeStoredCreditLineStatus(line.status), 'draw');
+  }
+  if (line.borrowerId !== borrowerId) {
+    throw new Error(
+      `Borrower "${borrowerId}" is not authorized to draw from credit line "${id}".`,
+    );
+  }
+  if (amount <= 0) {
+    throw new Error(`Draw amount must be greater than zero. Received ${amount}.`);
+  }
+
+  const availableCredit = line.limit - line.utilized;
+  if (amount > availableCredit) {
+    throw new Error(
+      `Requested draw amount of ${amount} exceeds available credit of ${availableCredit} for credit line "${id}".`,
+    );
+  }
 
   line.utilized += amount;
   return line;
@@ -44,17 +58,15 @@ export function drawFromCreditLine({ id, borrowerId, amount }: DrawRequest) {
 
 export type CreditLineStatus = 'active' | 'suspended' | 'closed';
 
-function normalizeStoredCreditLineStatus(
-    status: StoredCreditLineStatus,
-): CreditLineStatus {
-    switch (status) {
-        case "Active":
-            return "active";
-        case "Suspended":
-            return "suspended";
-        case "Closed":
-            return "closed";
-    }
+function normalizeStoredCreditLineStatus(status: StoredCreditLineStatus): CreditLineStatus {
+  switch (status) {
+    case 'Active':
+      return 'active';
+    case 'Suspended':
+      return 'suspended';
+    case 'Closed':
+      return 'closed';
+  }
 }
 
 export interface CreditLineEvent {

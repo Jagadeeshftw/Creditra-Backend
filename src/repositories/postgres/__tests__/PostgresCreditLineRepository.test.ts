@@ -60,6 +60,7 @@ describe('PostgresCreditLineRepository', () => {
         walletAddress: 'GTEST123',
         creditLimit: '10000.00',
         availableCredit: '10000.00',
+        utilized: '0',
         interestRateBps: 500,
         status: CreditLineStatus.ACTIVE,
         createdAt: now,
@@ -132,6 +133,7 @@ describe('PostgresCreditLineRepository', () => {
         walletAddress: 'GTEST789',
         creditLimit: '15000.00',
         availableCredit: '15000.00', // Full credit available initially
+        utilized: '0',
         interestRateBps: 600,
         status: CreditLineStatus.ACTIVE,
         createdAt: now,

@@ -13,6 +13,10 @@ const stellarAddressField = z
 
 export const createCreditLineSchema = z.object({
   walletAddress: stellarAddressField,
+  creditLimit: z
+    .string()
+    .regex(numericString, 'creditLimit must be a numeric string')
+    .optional(),
   requestedLimit: z
     .string()
     .regex(numericString, 'requestedLimit must be a numeric string')

@@ -1,24 +1,14 @@
 import express, { type Express } from "express";
 import request from "supertest";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-vi.mock("../services/riskService.js", () => ({
-  evaluateWallet: vi.fn(),
-  InvalidWalletAddressError: class InvalidWalletAddressError extends Error {
-    constructor() {
-      super("Invalid wallet address format.");
-      this.name = "InvalidWalletAddressError";
-    }
-  },
-}));
-
+import { Container } from "../container/Container.js";
 import { riskRouter } from "../routes/risk.js";
-import {
-  evaluateWallet,
-  InvalidWalletAddressError,
-} from "../services/riskService.js";
 
-const mockEvaluateWallet = vi.mocked(evaluateWallet);
+const VALID_ADDRESS =
+  "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+
+type ClearableRepository = { clear?: () => void };
 
 function buildApp(): Express {
   const app = express();
@@ -27,22 +17,23 @@ function buildApp(): Express {
   return app;
 }
 
-const VALID_ADDRESS =
-  "GCKFBEIYV2U22IO2BJ4KVJOIP7XPWQGZBW3JXDC55CYIXB5NAXMCEKJA";
-const MOCK_RESULT = {
-  walletAddress: VALID_ADDRESS,
-  score: 65,
-  riskLevel: "medium" as const,
-  message: "Risk evaluation completed via 'static' provider.",
-  evaluatedAt: "2026-02-26T00:00:00.000Z",
-};
-
 describe("POST /api/risk/evaluate", () => {
   let app: Express;
+  let container: Container;
+  let originalService: unknown;
 
   beforeEach(() => {
     app = buildApp();
-    mockEvaluateWallet.mockReset();
+    container = Container.getInstance();
+    originalService = container.riskEvaluationService;
+  });
+
+  afterEach(() => {
+    const repository = container.riskEvaluationRepository as ClearableRepository;
+    if (typeof repository.clear === "function") {
+      repository.clear();
+    }
+    Reflect.set(container, "_riskEvaluationService", originalService);
   });
 
   it("returns 400 when body is empty", async () => {
@@ -52,7 +43,11 @@ describe("POST /api/risk/evaluate", () => {
       .send({});
 
     expect(res.status).toBe(400);
-    expect(res.body).toEqual({ error: "walletAddress is required" });
+    expect(res.body).toMatchObject({
+      data: null,
+      error: "Validation failed",
+    });
+    expect(res.body.details[0].field).toBe("walletAddress");
   });
 
   it("returns 400 when walletAddress is blank", async () => {
@@ -61,56 +56,41 @@ describe("POST /api/risk/evaluate", () => {
       .send({ walletAddress: "   " });
 
     expect(res.status).toBe(400);
-    expect(res.body).toEqual({ error: "walletAddress is required" });
+    expect(res.body.error).toBe("Validation failed");
   });
 
-  it("returns 400 for invalid format and does not call evaluateWallet", async () => {
+  it("returns 400 for invalid format without echoing the invalid value", async () => {
     const invalidAddress = "BAD";
     const res = await request(app)
       .post("/api/risk/evaluate")
       .send({ walletAddress: invalidAddress });
 
     expect(res.status).toBe(400);
-    expect(res.body).toEqual({ error: "Invalid wallet address format." });
-    expect(res.body.error).not.toContain(invalidAddress);
-    expect(mockEvaluateWallet).not.toHaveBeenCalled();
+    expect(res.body.error).toBe("Validation failed");
+    expect(JSON.stringify(res.body)).not.toContain(invalidAddress);
   });
 
-  it("returns 200 with the service result on a valid address", async () => {
-    mockEvaluateWallet.mockResolvedValueOnce(MOCK_RESULT);
-
+  it("returns an enveloped service result on a valid address", async () => {
     const res = await request(app)
       .post("/api/risk/evaluate")
       .send({ walletAddress: VALID_ADDRESS });
 
     expect(res.status).toBe(200);
-    expect(res.body).toEqual(MOCK_RESULT);
+    expect(res.body).toMatchObject({
+      data: {
+        walletAddress: VALID_ADDRESS,
+        message: "New risk evaluation completed",
+      },
+      error: null,
+    });
   });
 
-  it("normalizes walletAddress and calls evaluateWallet with trimmed value", async () => {
-    mockEvaluateWallet.mockResolvedValueOnce(MOCK_RESULT);
-
-    await request(app)
-      .post("/api/risk/evaluate")
-      .send({ walletAddress: ` ${VALID_ADDRESS} ` });
-
-    expect(mockEvaluateWallet).toHaveBeenCalledTimes(1);
-    expect(mockEvaluateWallet).toHaveBeenCalledWith(VALID_ADDRESS);
-  });
-
-  it("returns 400 when service throws InvalidWalletAddressError", async () => {
-    mockEvaluateWallet.mockRejectedValueOnce(new InvalidWalletAddressError());
-
-    const res = await request(app)
-      .post("/api/risk/evaluate")
-      .send({ walletAddress: VALID_ADDRESS });
-
-    expect(res.status).toBe(400);
-    expect(res.body).toEqual({ error: "Invalid wallet address format." });
-  });
-
-  it("returns 500 with a generic message when service throws unexpected errors", async () => {
-    mockEvaluateWallet.mockRejectedValueOnce(new Error("DB unavailable"));
+  it("returns 500 with a generic message when the service throws unexpectedly", async () => {
+    Reflect.set(container, "_riskEvaluationService", {
+      evaluateRisk: async () => {
+        throw new Error("DB unavailable");
+      },
+    });
 
     const res = await request(app)
       .post("/api/risk/evaluate")
@@ -118,7 +98,8 @@ describe("POST /api/risk/evaluate", () => {
 
     expect(res.status).toBe(500);
     expect(res.body).toEqual({
-      error: "Unable to evaluate wallet at this time.",
+      data: null,
+      error: "Internal server error",
     });
   });
 

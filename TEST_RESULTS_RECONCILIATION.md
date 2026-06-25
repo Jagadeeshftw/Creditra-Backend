@@ -1,13 +1,20 @@
-# Reconciliation Feature - Test Results
+# Reconciliation Feature - Test Notes
 
-## Test Summary
+## Current Validation
 
-✅ **All reconciliation tests passing**
+This file is a test-plan and coverage note for the reconciliation feature. Do
+not treat it as current CI evidence; use the PR check rollup or a fresh local CI
+run for pass/fail and coverage status.
 
-- **Test Files**: 3 passed
-- **Total Tests**: 40 passed
-- **Duration**: ~600ms
-- **Coverage**: 95%+ on all reconciliation modules
+Recommended commands:
+
+```bash
+npm run lint
+npm run typecheck
+npm test
+npm run test:coverage
+npm run build
+```
 
 ## Test Breakdown
 
@@ -58,13 +65,17 @@
 - ✅ Returns true after start
 - ✅ Returns false after stop
 
-### 3. SorobanClient Tests (8 tests)
+### 3. SorobanClient Tests
 **File**: `src/services/__tests__/sorobanClient.test.ts`
 
 **MockSorobanClient:**
-- ✅ Returns empty array in mock implementation
-- ✅ Logs fetch attempt with config details
+- ✅ Returns empty array in local/test fallback mode
+- ✅ Logs mock fallback selection without exposing Stellar keys
 - ✅ Completes without throwing
+
+**StellarSorobanClient:**
+- ✅ Decodes contract-shaped `enumerate_credit_lines` XDR fixtures
+- ✅ Exercises pagination, retry, timeout, and redaction behavior
 
 **Config Resolution:**
 - ✅ Returns default config when no env vars set
@@ -83,14 +94,11 @@
 - ✅ End-to-end: periodic scheduling works
 - ✅ End-to-end: detects multiple types of mismatches
 
-## Test Coverage
+## Coverage Target
 
-All reconciliation modules achieve >95% coverage:
-
-- `reconciliationService.ts`: 100% coverage
-- `reconciliationWorker.ts`: 100% coverage
-- `sorobanClient.ts`: 100% coverage
-- Integration scenarios: 100% coverage
+The repository coverage gate should be verified with `npm run test:coverage`
+before review. The reconciliation modules are expected to stay at or above the
+project threshold, but exact percentages must come from the current run.
 
 ## Key Test Scenarios Covered
 

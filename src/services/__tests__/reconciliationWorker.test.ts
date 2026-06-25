@@ -44,7 +44,7 @@ describe('ReconciliationWorker', () => {
     jobQueue = new InMemoryJobQueue(10, 20);
     
     service = new ReconciliationService(
-      mockRepo as CreditLineRepository,
+      mockRepo as unknown as CreditLineRepository,
       mockClient,
       jobQueue
     );
@@ -163,6 +163,7 @@ describe('ReconciliationWorker', () => {
         walletAddress: 'GTEST123',
         creditLimit: '10000.00',
         availableCredit: '10000.00',
+        utilized: '0',
         interestRateBps: 500,
         status: CreditLineStatus.ACTIVE,
         createdAt: new Date(),
@@ -195,6 +196,7 @@ describe('ReconciliationWorker', () => {
         walletAddress: 'GTEST123',
         creditLimit: '10000.00',
         availableCredit: '8000.00',
+        utilized: '2000.00',
         interestRateBps: 500,
         status: CreditLineStatus.ACTIVE,
         createdAt: new Date(),
@@ -232,7 +234,7 @@ describe('ReconciliationWorker', () => {
       };
 
       const errorService = new ReconciliationService(
-        mockRepo as CreditLineRepository,
+        mockRepo as unknown as CreditLineRepository,
         errorClient,
         jobQueue
       );

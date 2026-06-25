@@ -7,6 +7,7 @@
 
 import type { JobQueue, Job } from './jobQueue.js';
 import type { ReconciliationService } from './reconciliationService.js';
+import { sanitizeJsonForStellarDiagnostics, sanitizeStellarDiagnostic } from './stellarDiagnostics.js';
 
 export interface ReconciliationWorkerConfig {
   /** How often to run reconciliation (in milliseconds). Default: 1 hour */
@@ -50,11 +51,12 @@ export class ReconciliationWorker {
         }
         
         if (result.errors.length > 0) {
+          const sanitizedErrors = result.errors.map(sanitizeStellarDiagnostic);
           console.error(
             `[ReconciliationWorker] Reconciliation completed with errors:`,
-            result.errors
+            sanitizeJsonForStellarDiagnostics(sanitizedErrors)
           );
-          throw new Error(`Reconciliation errors: ${result.errors.join(', ')}`);
+          throw new Error(`Reconciliation errors: ${sanitizedErrors.join(', ')}`);
         }
         
         console.log(
@@ -62,7 +64,7 @@ export class ReconciliationWorker {
           `Checked ${result.totalChecked} records.`
         );
       } catch (error) {
-        console.error(`[ReconciliationWorker] Job ${job.id} failed:`, error);
+        console.error(`[ReconciliationWorker] Job ${job.id} failed:`, sanitizeStellarDiagnostic(error));
         throw error; // Re-throw to trigger job retry logic
       }
     });

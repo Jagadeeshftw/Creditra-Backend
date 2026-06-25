@@ -178,7 +178,7 @@ Subscriber expectation (documented in [`docs/API.md`](./API.md) §Webhooks):
   - Masks Stellar secret seeds, muxed accounts, and email addresses.
   - Walks nested objects and `Error.message`.
   - Is opt-out via `LOG_REDACTION_DEBUG` for incident response.
-- **Sanitized errors.** [`sorobanRpcClient`](../src/services/sorobanRpcClient.ts) strips Stellar keys from any thrown error before propagation.
+- **Sanitized errors.** [`sanitizeStellarDiagnostic`](../src/services/stellarDiagnostics.ts) strips Stellar keys from Soroban diagnostics before propagation.
 - **No `.env` in image.** `Dockerfile` deliberately omits the env file; secrets must be injected at runtime.
 
 ---

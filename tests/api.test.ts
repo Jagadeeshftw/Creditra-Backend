@@ -62,12 +62,12 @@ describe('API Integration Tests', () => {
         it('POST /api/risk/evaluate returns a successful envelope with risk status', async () => {
             const response = await request(app)
                 .post('/api/risk/evaluate')
-                .send({ walletAddress: 'GBAHQCUPC7G2B4D2F2I2K2M2O2Q2S2U2W2Y2A2C2E2G2I2K2M2O2Q2S1' });
+                .send({ walletAddress: 'GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA' });
 
             expect(response.status).toBe(200);
             expect(response.body).toMatchObject({
                 data: {
-                    walletAddress: 'GBAHQCUPC7G2B4D2F2I2K2M2O2Q2S2U2W2Y2A2C2E2G2I2K2M2O2Q2S1',
+                    walletAddress: 'GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
                     message: expect.any(String),
                 },
                 error: null

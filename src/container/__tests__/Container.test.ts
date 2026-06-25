@@ -6,6 +6,8 @@ import { InMemoryTransactionRepository } from '../../repositories/memory/InMemor
 import type { CreditLineRepository } from '../../repositories/interfaces/CreditLineRepository.js';
 import type { RiskEvaluationRepository } from '../../repositories/interfaces/RiskEvaluationRepository.js';
 import type { TransactionRepository } from '../../repositories/interfaces/TransactionRepository.js';
+import { CreditLineStatus, type CreditLine } from '../../models/CreditLine.js';
+import type { OnChainCreditRecord, SorobanRpcClient } from '../../services/reconciliationService.js';
 
 describe('Container', () => {
   let container: Container;
@@ -49,6 +51,48 @@ describe('Container', () => {
 
       expect(container.creditLineRepository).toBe(newCreditLineRepo);
       expect(container.creditLineService).not.toBe(originalService);
+    });
+
+    it('should rebuild reconciliation service with the replacement credit line repository', async () => {
+      const replacementLine: CreditLine = {
+        id: 'replacement-cl-1',
+        walletAddress: 'GTEST123',
+        creditLimit: '10000.00',
+        availableCredit: '10000.00',
+        utilized: '0',
+        interestRateBps: 500,
+        status: CreditLineStatus.ACTIVE,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+      const replacementRepo = {
+        async findAll(): Promise<CreditLine[]> {
+          return [replacementLine];
+        },
+      } as unknown as CreditLineRepository;
+      const matchingSorobanClient: SorobanRpcClient = {
+        async fetchAllCreditRecords(): Promise<OnChainCreditRecord[]> {
+          return [
+            {
+              id: '0',
+              walletAddress: 'GTEST123',
+              creditLimit: '10000.00',
+              availableCredit: '10000.00',
+              interestRateBps: 500,
+              status: 'active',
+            },
+          ];
+        },
+      };
+
+      container.setRepositories({ creditLineRepository: replacementRepo });
+      container.setSorobanClientForTesting(matchingSorobanClient);
+
+      const result = await container.reconciliationService.reconcile();
+
+      expect(result.totalChecked).toBe(1);
+      expect(result.errors).toEqual([]);
+      expect(result.mismatches).toEqual([]);
     });
 
     it('should replace risk evaluation repository and service', () => {
@@ -112,6 +156,7 @@ describe('Container', () => {
       async findById(): Promise<any> { return null; }
       async findByWalletAddress(): Promise<any[]> { return []; }
       async findAll(): Promise<any[]> { return []; }
+      async findAllWithCursor(): Promise<any> { return { items: [], nextCursor: null, hasMore: false }; }
       async update(): Promise<any> { return null; }
       async delete(): Promise<boolean> { return false; }
       async exists(): Promise<boolean> { return false; }

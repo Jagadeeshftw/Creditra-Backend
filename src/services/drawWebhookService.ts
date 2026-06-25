@@ -129,10 +129,17 @@ async function deliverWebhook(
     const payloadString = JSON.stringify(payload);
     
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
 
     try {
-        const response = await fetch(url, {
+        const timeout = new Promise<never>((_resolve, reject) => {
+            timeoutId = setTimeout(() => {
+                controller.abort();
+                reject(new Error("Request timeout"));
+            }, timeoutMs);
+        });
+
+        const response = await Promise.race([fetch(url, {
             method: "POST",
             headers: {
                 "Content-Type": "application/json",
@@ -142,9 +149,11 @@ async function deliverWebhook(
             },
             body: payloadString,
             signal: controller.signal
-        });
+        }), timeout]);
 
-        clearTimeout(timeoutId);
+        if (timeoutId !== undefined) {
+            clearTimeout(timeoutId);
+        }
 
         if (response.ok) {
             return { success: true, status: response.status };
@@ -156,16 +165,15 @@ async function deliverWebhook(
             };
         }
     } catch (error) {
-        clearTimeout(timeoutId);
-        
-        if (error instanceof Error) {
-            if (error.name === "AbortError") {
-                return { success: false, error: "Request timeout" };
-            }
-            return { success: false, error: error.message };
+        if (timeoutId !== undefined) {
+            clearTimeout(timeoutId);
         }
         
-        return { success: false, error: "Unknown error occurred" };
+        if (error instanceof Error) {
+            throw error.name === "AbortError" ? new Error("Request timeout") : error;
+        }
+        
+        throw new Error("Unknown error occurred");
     }
 }
 

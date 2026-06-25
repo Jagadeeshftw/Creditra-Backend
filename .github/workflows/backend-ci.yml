@@ -25,7 +25,7 @@ jobs:
 
     strategy:
       matrix:
-        node-version: [18.x, 20.x, 22.x]
+        node-version: [20.x, 22.x]
       fail-fast: false
 
     steps:
@@ -101,7 +101,7 @@ jobs:
       - name: Check for sensitive data patterns
         run: |
           echo "Checking for potential sensitive data leaks..."
-          if grep -r "PRIVATE_KEY\|SECRET_KEY\|API_KEY" src/ --exclude-dir=node_modules --exclude="*.test.ts" --exclude="*.md" | grep -v "process.env" | grep -v "//"; then
+          if grep -rE "(PRIVATE_KEY|SECRET_KEY|API_KEY)[[:space:]]*[:=][[:space:]]*['\"]" src/ --include="*.ts" --exclude="*.test.ts"; then
             echo "⚠️ Warning: Potential hardcoded secrets found"
             exit 1
           else

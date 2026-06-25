@@ -1,5 +1,5 @@
 
-import express, { type Express } from "express";
+import express, { type Express, type Response as ExpressResponse } from "express";
 import request from "supertest";
 import {
   _resetStore,
@@ -8,6 +8,7 @@ import {
   closeCreditLine,
 } from "../services/creditService.js";
 import { TransactionType } from "../models/Transaction.js";
+import { Container } from "../container/Container.js";
 
 // Mock adminAuth so we can control auth pass/fail from within tests
 vi.mock("../middleware/adminAuth.js", () => ({
@@ -37,7 +38,7 @@ function allowAdmin() {
 }
 
 function denyAdmin() {
-  mockAdminAuth.mockImplementation((_req, res: Response, _next) => {
+  mockAdminAuth.mockImplementation((_req, res: ExpressResponse, _next) => {
     res.status(401).json({ error: "Unauthorized: valid X-Admin-Api-Key header is required." });
   });
 }
@@ -45,6 +46,10 @@ function denyAdmin() {
 
 beforeEach(() => {
   _resetStore();
+  const repository = Container.getInstance().creditLineRepository;
+  if ('clear' in repository && typeof repository.clear === 'function') {
+    repository.clear();
+  }
   allowAdmin(); // default to allowing admin access, override in specific tests as needed
 });
 
@@ -57,14 +62,22 @@ describe("GET /api/credit/lines", () => {
   it("returns 200 with an empty array when store is empty", async () => {
     const res = await request(buildApp()).get("/api/credit/lines");
     expect(res.status).toBe(200);
-    expect(res.body.data).toEqual([]);
+    expect(res.body.data.creditLines).toEqual([]);
   });
 
   it("returns all credit lines", async () => {
-    createCreditLine("a");
-    createCreditLine("b");
+    await Container.getInstance().creditLineService.createCreditLine({
+      walletAddress: "wallet-a",
+      creditLimit: "1000.00",
+      interestRateBps: 500,
+    });
+    await Container.getInstance().creditLineService.createCreditLine({
+      walletAddress: "wallet-b",
+      creditLimit: "2000.00",
+      interestRateBps: 600,
+    });
     const res = await request(buildApp()).get("/api/credit/lines");
-    expect(res.body.data).toHaveLength(2);
+    expect(res.body.data.creditLines).toHaveLength(2);
   });
 
   it("returns JSON content-type", async () => {
@@ -76,16 +89,20 @@ describe("GET /api/credit/lines", () => {
 
 describe("GET /api/credit/lines/:id", () => {
   it("returns 200 with the credit line for a known id", async () => {
-    createCreditLine(VALID_ID);
-    const res = await request(buildApp()).get(`/api/credit/lines/${VALID_ID}`);
+    const created = await Container.getInstance().creditLineService.createCreditLine({
+      walletAddress: "wallet-c",
+      creditLimit: "1000.00",
+      interestRateBps: 500,
+    });
+    const res = await request(buildApp()).get(`/api/credit/lines/${created.id}`);
     expect(res.status).toBe(200);
-    expect(res.body.data.id).toBe(VALID_ID);
+    expect(res.body.data.id).toBe(created.id);
   });
 
   it("returns 404 for an unknown id", async () => {
     const res = await request(buildApp()).get(`/api/credit/lines/${MISSING_ID}`);
     expect(res.status).toBe(404);
-    expect(res.body.error).toContain(MISSING_ID);
+    expect(res.body.error).toBe("Credit line not found");
   });
 
   it("returns JSON content-type on 404", async () => {

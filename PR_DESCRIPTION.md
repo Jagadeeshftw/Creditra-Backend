@@ -9,7 +9,7 @@ Implements a scheduled background job that compares on-chain Credit contract rec
 ### New Services
 - **ReconciliationService** - Core reconciliation logic comparing DB vs blockchain records
 - **ReconciliationWorker** - Scheduled job execution with retry logic and alerting
-- **SorobanClient** - Mock Soroban RPC client (ready for production SDK integration)
+- **SorobanClient** - Mock fallback plus Stellar SDK-backed read client for reconciliation
 
 ### New API Endpoints (Admin Only)
 - `POST /api/reconciliation/trigger` - Manually trigger reconciliation job
@@ -64,18 +64,19 @@ RECONCILIATION_RUN_IMMEDIATELY=true
 
 ## Testing
 
-### Test Coverage: 40 Tests, All Passing ✅
+The reconciliation and Soroban-read paths are covered by focused service,
+worker, client, and integration tests. Treat repository CI as the source of
+truth for pass/fail and coverage status before marking the PR ready.
 
-- **ReconciliationService**: 17 tests
-- **ReconciliationWorker**: 17 tests  
-- **SorobanClient**: 8 tests
-- **Integration**: 6 end-to-end tests
+Recommended validation:
 
-### Coverage Metrics
-- Lines: >95%
-- Branches: >95%
-- Functions: >95%
-- Statements: >95%
+```bash
+npm run lint
+npm run typecheck
+npm test
+npm run test:coverage
+npm run build
+```
 
 ### Test Scenarios
 - ✅ Field-level mismatch detection (all fields)
@@ -90,11 +91,11 @@ RECONCILIATION_RUN_IMMEDIATELY=true
 
 ## Documentation
 
-- ✅ `docs/reconciliation.md` - Comprehensive feature documentation
-- ✅ `docs/openapi.yaml` - API specification updated
-- ✅ `README.md` - Configuration and usage guide
-- ✅ `.env.example` - Environment variable template
-- ✅ Inline code comments for complex logic
+- `docs/reconciliation.md` - Feature documentation
+- API/OpenAPI route documentation updated where the repo keeps route specs
+- README/configuration documentation updated
+- `.env.example` - Environment variable template
+- Inline comments kept to non-obvious parsing and retry behavior
 
 ## Security
 
@@ -106,19 +107,19 @@ RECONCILIATION_RUN_IMMEDIATELY=true
 
 ## Production Readiness
 
-### Ready for Deployment
-- ✅ Comprehensive test coverage
-- ✅ Error handling and retry logic
-- ✅ Graceful shutdown support
-- ✅ Configurable via environment variables
-- ✅ Logging and monitoring hooks
+### Deployment Checklist
+- Current CI/test coverage has been verified for the branch
+- Error handling and retry logic reviewed
+- Graceful shutdown support reviewed
+- Required environment variables configured
+- Logging and monitoring hooks configured for the deployment
 
 ### Next Steps for Production
-1. Install `@stellar/stellar-sdk` package
-2. Replace `MockSorobanClient` with real Soroban SDK implementation
+1. Configure `CREDIT_CONTRACT_ID`, `SOROBAN_RPC_URL`, and `STELLAR_NETWORK_PASSPHRASE`
+2. Configure timeout/retry env vars for the deployment's RPC latency profile
 3. Configure external alerting (email, Slack, PagerDuty)
 4. Set up monitoring dashboards
-5. Configure production environment variables
+5. Keep `CREDIT_CONTRACT_ID` empty only in tests/local environments that should use the mock fallback
 
 ## Files Changed
 

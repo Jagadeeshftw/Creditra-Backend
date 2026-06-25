@@ -2,6 +2,49 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { RiskEvaluationService } from '../RiskEvaluationService.js';
 import type { RiskEvaluationRepository } from '../../repositories/interfaces/RiskEvaluationRepository.js';
 import type { RiskEvaluation } from '../../models/RiskEvaluation.js';
+import type { IRiskProvider, RiskProviderOutput } from '../providers/IRiskProvider.js';
+
+const WALLET = 'GBAHQCUPC7G2B4D2F2I2K2M2O2Q2S2U2W2Y2A2C2E2G2I2K2M2O2Q2S1';
+
+function buildCachedEval(overrides: Partial<RiskEvaluation> = {}): RiskEvaluation {
+  const evaluatedAt = new Date('2026-01-01T00:00:00.000Z');
+  return {
+    id: 'eval-123',
+    walletAddress: WALLET,
+    riskScore: 75,
+    creditLimit: '750.00',
+    interestRateBps: 625,
+    factors: [],
+    evaluatedAt,
+    expiresAt: new Date(evaluatedAt.getTime() + 24 * 60 * 60 * 1000),
+    ...overrides,
+  };
+}
+
+function buildMockProvider(score: number): IRiskProvider {
+  const output: RiskProviderOutput = {
+    score,
+    factors: [],
+  };
+
+  return {
+    name: 'mock',
+    evaluate: vi.fn(async () => output),
+  };
+}
+
+function buildMockRepo(): RiskEvaluationRepository {
+  return {
+    save: vi.fn(async (evaluation) => buildCachedEval(evaluation)),
+    findLatestByWalletAddress: vi.fn(),
+    findById: vi.fn(),
+    findByWalletAddress: vi.fn(),
+    deleteExpired: vi.fn(),
+    isValid: vi.fn(),
+    findAll: vi.fn(),
+    count: vi.fn(),
+  };
+}
 
 describe('RiskEvaluationService', () => {
   let service: RiskEvaluationService;

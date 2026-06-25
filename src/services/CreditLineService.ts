@@ -1,4 +1,4 @@
-import type { CreditLine, CreateCreditLineRequest, UpdateCreditLineRequest } from '../models/CreditLine.js';
+import { type CreditLine, type CreateCreditLineRequest, type UpdateCreditLineRequest, CreditLineStatus } from '../models/CreditLine.js';
 import type { CreditLineRepository, CursorPaginationResult } from '../repositories/interfaces/CreditLineRepository.js';
 
 /**
@@ -133,8 +133,8 @@ export class CreditLineService {
    * - `utilized + amount` must not exceed `creditLimit`
    *
    * On success the persisted `utilized` field is incremented atomically by
-   * the repository. The on-chain transaction is submitted separately via
-   * `SorobanRpcClient` — confirmation flows back through the indexer.
+   * the repository. The on-chain transaction is submitted separately by the
+   * caller's wallet or integration; confirmation flows back through the indexer.
    */
   async draw(id: string, borrowerId: string, amount: string): Promise<CreditLine> {
     const line = await this.creditLineRepository.findById(id);
@@ -172,7 +172,7 @@ export class CreditLineService {
    * state. The on-chain repay transaction is broadcast separately and
    * confirmed by the indexer.
    */
-  async repay(id: string, walletAddress: string, amount: string): Promise<CreditLine> {
+  async repay(id: string, _walletAddress: string, amount: string): Promise<CreditLine> {
     const line = await this.creditLineRepository.findById(id);
     if (!line) {
       throw new Error('Credit line not found');

@@ -7,7 +7,7 @@ The `backend-ci.yml` workflow provides comprehensive continuous integration for 
 ## Workflow Features
 
 ### 1. Multi-Node Version Testing
-- Tests against Node.js LTS versions: 18.x, 20.x, 22.x
+- Tests against supported Node.js LTS versions: 20.x, 22.x
 - Ensures compatibility across different Node environments
 - Fail-fast disabled to see results from all versions
 
@@ -121,7 +121,7 @@ Follow conventional commits:
 ```
 ci(backend): add comprehensive test and lint workflow
 
-- Multi-node version matrix (18.x, 20.x, 22.x)
+- Multi-node version matrix (20.x, 22.x)
 - Coverage reporting with 95% threshold
 - Security audit and secret detection
 - OpenAPI spec validation

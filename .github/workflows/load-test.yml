@@ -37,6 +37,9 @@ jobs:
           sudo apt-get install k6
 
       - name: Start server
+        env:
+          RATE_LIMIT_MAX_REQUESTS: 10000
+          RATE_LIMIT_MAX_EVALUATE: 10000
         run: |
           npm start &
           echo $! > server.pid

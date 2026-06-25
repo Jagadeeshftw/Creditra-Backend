@@ -31,6 +31,8 @@ tags:
     description: On-chain risk evaluation
   - name: Webhooks
     description: Draw confirmation webhook management
+  - name: Reconciliation
+    description: Admin control plane for DB-vs-chain reconciliation
 
 security:
   - ApiKeyAuth: []
@@ -390,6 +392,42 @@ components:
           type: string
           example: "Risk model recalibration triggered"
 
+    ReconciliationTriggerResponse:
+      type: object
+      properties:
+        data:
+          type: object
+          required: [jobId, message]
+          properties:
+            jobId:
+              type: string
+              description: Identifier for the scheduled reconciliation job
+            message:
+              type: string
+              example: Reconciliation job scheduled
+        error:
+          type: string
+          nullable: true
+
+    ReconciliationStatusResponse:
+      type: object
+      properties:
+        data:
+          type: object
+          required: [workerRunning, queueSize, failedJobs]
+          properties:
+            workerRunning:
+              type: boolean
+            queueSize:
+              type: integer
+              minimum: 0
+            failedJobs:
+              type: integer
+              minimum: 0
+        error:
+          type: string
+          nullable: true
+
     # ── Error Schemas ─────────────────────────────────────────────────────────
 
     ErrorResponse:
@@ -427,6 +465,83 @@ paths:
               example:
                 status: ok
                 service: creditra-backend
+
+  # ── Reconciliation Routes ───────────────────────────────────────────────────
+
+  /api/reconciliation/trigger:
+    post:
+      tags: [Reconciliation]
+      operationId: triggerReconciliation
+      summary: Schedule a reconciliation job
+      description: Admin-gated endpoint that schedules a DB-vs-chain reconciliation job and returns immediately.
+      responses:
+        "202":
+          description: Reconciliation job scheduled
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReconciliationTriggerResponse"
+              example:
+                data:
+                  jobId: "reconciliation-1710000000000"
+                  message: Reconciliation job scheduled
+                error: null
+        "401":
+          description: Missing API key
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Invalid API key
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Failed to schedule reconciliation
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/reconciliation/status:
+    get:
+      tags: [Reconciliation]
+      operationId: getReconciliationStatus
+      summary: Get reconciliation worker and queue status
+      description: Admin-gated endpoint for dashboards and alerts to inspect worker and queue health.
+      responses:
+        "200":
+          description: Reconciliation status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReconciliationStatusResponse"
+              example:
+                data:
+                  workerRunning: true
+                  queueSize: 0
+                  failedJobs: 0
+                error: null
+        "401":
+          description: Missing API key
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Invalid API key
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Failed to get reconciliation status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
 
   # ── Credit Lines Routes ─────────────────────────────────────────────────────
 
@@ -1150,165 +1265,3 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
-
-
-components:
-  schemas:
-    HealthResponse:
-      type: object
-      required: [status, service]
-      properties:
-        status:
-          type: string
-          example: ok
-        service:
-          type: string
-          example: creditra-backend
-
-    CreditLine:
-      type: object
-      description: Placeholder – expand as the credit engine is built out
-      properties:
-        id:
-          type: string
-        owner:
-          type: string
-        limit:
-          type: string
-
-    CreditLinesResponse:
-      type: object
-      required: [creditLines, pagination]
-      properties:
-        creditLines:
-          type: array
-          items:
-            $ref: "#/components/schemas/CreditLine"
-        pagination:
-          type: object
-          properties:
-            total:
-              type: integer
-            offset:
-              type: integer
-            limit:
-              type: integer
-          required: [total, offset, limit]
-
-    RiskEvaluateRequest:
-      type: object
-      required: [walletAddress]
-      properties:
-        walletAddress:
-          type: string
-          description: Stellar public key (G...)
-          pattern: '^G[A-Z2-7]{55}$'
-          example: "GBAHQCUPC7G2B4D2F2I2K2M2O2Q2S2U2W2Y2A2C2E2G2I2K2M2O2Q2S2"
-        forceRefresh:
-          type: boolean
-          description: Optional hint to bypass cache and recalculate risk
-          default: false
-
-    RiskEvaluateResponse:
-      type: object
-      required: [walletAddress, riskScore, creditLimit, interestRateBps, message]
-      properties:
-        walletAddress:
-          type: string
-        riskScore:
-          type: number
-        creditLimit:
-          type: string
-        interestRateBps:
-          type: number
-        message:
-          type: string
-
-    RiskEvaluateApiResponse:
-      type: object
-      required: [data, error]
-      properties:
-        data:
-          $ref: "#/components/schemas/RiskEvaluateResponse"
-        error:
-          type: string
-          nullable: true
-
-    Transaction:
-      type: object
-      required: [id, creditLineId, type, amount, currency, timestamp, metadata]
-      properties:
-        id:
-          type: string
-          format: uuid
-          description: Unique transaction identifier
-        creditLineId:
-          type: string
-          description: ID of the credit line this transaction belongs to
-        type:
-          type: string
-          enum: [borrow, repay, interest_accrual, fee, status_change]
-          description: Transaction type
-        amount:
-          type: string
-          nullable: true
-          description: Transaction amount as a decimal string; null for status changes
-          example: "500.00000000"
-        currency:
-          type: string
-          nullable: true
-          description: Currency code (e.g. USDC); null for status changes
-          example: USDC
-        timestamp:
-          type: string
-          format: date-time
-          description: ISO 8601 timestamp of when the transaction occurred
-        metadata:
-          type: object
-          additionalProperties: true
-          description: Additional context; status changes include an 'action' field
-          example:
-            action: created
-
-    TransactionHistoryResponse:
-      type: object
-      required: [data, error]
-      properties:
-        data:
-          type: object
-          required: [transactions, total, page, limit, totalPages]
-          properties:
-            transactions:
-              type: array
-              items:
-                $ref: "#/components/schemas/Transaction"
-            total:
-              type: integer
-              description: Total number of transactions matching the applied filters
-            page:
-              type: integer
-              description: Current page number (1-indexed)
-            limit:
-              type: integer
-              description: Maximum number of transactions per page
-            totalPages:
-              type: integer
-              description: Total number of pages available
-        error:
-          type: string
-          nullable: true
-
-    ErrorResponse:
-      type: object
-      required: [data, error]
-      description: Standardized error response format used across all endpoints
-      properties:
-        data:
-          type: object
-          nullable: true
-          description: Always null for error responses
-        error:
-          type: string
-        id:
-          type: string
-          description: Present on 404 responses that reference a specific resource

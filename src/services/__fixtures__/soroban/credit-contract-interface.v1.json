@@ -1,0 +1,65 @@
+{
+  "source": {
+    "repository": "Creditra/Creditra-Contracts",
+    "commit": "3f3ef2f318641005e3b2fb970df8e54f927ce606",
+    "contract": "contracts/credit",
+    "sourceRefs": [
+      "contracts/credit/src/lib.rs",
+      "contracts/credit/src/types.rs",
+      "contracts/credit/src/storage.rs",
+      "contracts/credit/tests/enumerate_credit_lines.rs"
+    ]
+  },
+  "apiVersion": [1, 0, 0],
+  "method": {
+    "name": "enumerate_credit_lines",
+    "arguments": [
+      {
+        "name": "start_after",
+        "type": "Option<u32>",
+        "cursor": true,
+        "exclusive": true
+      },
+      {
+        "name": "limit",
+        "type": "u32",
+        "maximum": 100
+      }
+    ],
+    "returnType": "Vec<(u32, CreditLineData)>"
+  },
+  "cursor": {
+    "type": "u32",
+    "storageKey": "CreditLineBorrowerById(u32)",
+    "ordering": "stable insertion order"
+  },
+  "creditLineData": {
+    "type": "CreditLineData",
+    "fieldOrder": [
+      { "name": "borrower", "type": "Address" },
+      { "name": "credit_limit", "type": "i128" },
+      { "name": "utilized_amount", "type": "i128" },
+      { "name": "interest_rate_bps", "type": "u32" },
+      { "name": "risk_score", "type": "u32" },
+      { "name": "status", "type": "CreditStatus" },
+      { "name": "last_rate_update_ts", "type": "u64" },
+      { "name": "accrued_interest", "type": "i128" },
+      { "name": "last_accrual_ts", "type": "u64" },
+      { "name": "suspension_ts", "type": "u64" }
+    ]
+  },
+  "creditStatus": {
+    "Active": 0,
+    "Suspended": 1,
+    "Defaulted": 2,
+    "Closed": 3,
+    "Restricted": 4
+  },
+  "compatibilityAssertions": [
+    "First page passes start_after=None and limit=100.",
+    "Next page passes start_after=last returned u32 cursor.",
+    "Returned records are u32 cursor plus CreditLineData.",
+    "CreditLineData.status is after risk_score in tuple/native field order.",
+    "Backend reconciliation derives availableCredit as credit_limit - utilized_amount."
+  ]
+}

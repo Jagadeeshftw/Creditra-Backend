@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { Request, Response, NextFunction } from 'express';
-import { errorHandler, type ErrorResponse } from '../errorHandler.js';
+import type { Request, Response, NextFunction } from 'express';
+import { errorHandler } from '../../middleware/errorHandler.js';
 
 // Mock console.error to avoid test output pollution
 const mockConsoleError = vi.spyOn(console, 'error').mockImplementation(() => {});

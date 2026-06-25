@@ -22,9 +22,9 @@ Implemented a scheduled job that compares on-chain Credit contract records with 
    - Failed jobs enter dead-letter queue after max retries
 
 3. **SorobanClient** (`src/services/sorobanClient.ts`)
-   - Mock implementation of Soroban RPC client
-   - Configurable via environment variables
-   - Ready for production replacement with @stellar/stellar-sdk
+   - Uses `MockSorobanClient` when `CREDIT_CONTRACT_ID` is empty
+   - Uses `StellarSorobanClient` for read-only `enumerate_credit_lines(start_after, limit)` when a contract id is configured
+   - Decodes ScVal/XDR into reconciliation records with Stellar-key redaction on diagnostics
 
 4. **API Routes** (`src/routes/reconciliation.ts`)
    - POST /api/reconciliation/trigger - Manual job trigger (admin)
@@ -43,6 +43,7 @@ Implemented a scheduled job that compares on-chain Credit contract records with 
 |-------|----------|--------|
 | existence | critical | Job fails → retry → dead-letter |
 | walletAddress | critical | Job fails → retry → dead-letter |
+| walletAddressFormatting | warning | Logged, job succeeds |
 | creditLimit | critical | Job fails → retry → dead-letter |
 | status | critical | Job fails → retry → dead-letter |
 | availableCredit | warning | Logged, job succeeds |
@@ -57,6 +58,9 @@ Environment variables:
 SOROBAN_RPC_URL=https://soroban-testnet.stellar.org
 CREDIT_CONTRACT_ID=<contract-id>
 STELLAR_NETWORK_PASSPHRASE=Test SDF Network ; September 2015
+SOROBAN_TIMEOUT_MS=30000
+SOROBAN_MAX_RETRIES=3
+SOROBAN_RETRY_JITTER_MS=1000
 
 # Reconciliation
 RECONCILIATION_INTERVAL_MS=3600000  # 1 hour default
@@ -67,40 +71,19 @@ RECONCILIATION_RUN_IMMEDIATELY=true
 
 ### Test Coverage
 
-- **reconciliationService.test.ts**: 15 test cases
-  - Empty mismatches when in sync
-  - Field-specific mismatch detection (all fields)
-  - Existence checks (DB-only, chain-only records)
-  - Multiple mismatches across fields
-  - Error handling and logging
+The reconciliation feature is covered across service, worker, Soroban client,
+route, and integration tests. Keep the exact test count and coverage percentage
+anchored to the current CI run rather than this document.
 
-- **reconciliationWorker.test.ts**: 13 test cases
-  - Worker lifecycle (start/stop/isRunning)
-  - Immediate and periodic scheduling
-  - Job handler success/failure paths
-  - Retry logic with maxAttempts
-  - Critical vs warning severity handling
+Key scenarios covered:
 
-- **sorobanClient.test.ts**: 6 test cases
-  - Mock client behavior
-  - Config resolution from env vars
-  - Default values
-
-- **reconciliation.test.ts**: 8 test cases
-  - API authentication requirements
-  - Manual trigger endpoint
-  - Status endpoint
-  - Error handling
-
-- **reconciliation.integration.test.ts**: 7 test cases
-  - End-to-end reconciliation flow
-  - Critical mismatch alerting
-  - Warning-level mismatch handling
-  - Transient failure retry
-  - Periodic scheduling
-  - Multiple mismatch types
-
-**Total: 49 test cases** covering all reconciliation functionality
+- Empty mismatches when DB and chain are in sync
+- Field-specific mismatch detection
+- Existence checks for DB-only and chain-only records
+- Multiple mismatches across fields
+- Worker lifecycle, immediate scheduling, periodic scheduling, and retry paths
+- Mock-client fallback and real Soroban contract read parsing
+- API authentication, manual trigger, status endpoint, and error handling
 
 ### Run Tests
 
@@ -108,8 +91,8 @@ RECONCILIATION_RUN_IMMEDIATELY=true
 npm test src/services/__tests__/reconciliationService.test.ts
 npm test src/services/__tests__/reconciliationWorker.test.ts
 npm test src/services/__tests__/sorobanClient.test.ts
-npm test src/routes/__tests__/reconciliation.test.ts
 npm test src/__tests__/reconciliation.integration.test.ts
+npm run test:coverage
 ```
 
 ## Security Considerations
@@ -132,8 +115,8 @@ npm test src/__tests__/reconciliation.integration.test.ts
 ### To Deploy
 
 1. Set environment variables (see Configuration section)
-2. Install @stellar/stellar-sdk: `npm install @stellar/stellar-sdk`
-3. Replace MockSorobanClient with real implementation
+2. Configure Soroban RPC and contract env vars for production
+3. Leave `CREDIT_CONTRACT_ID` empty only when the mock fallback is desired
 4. Configure monitoring/alerting for failed jobs
 5. Set up dead-letter queue processing
 
@@ -152,7 +135,7 @@ feat(credit): chain versus DB reconciliation job
 
 - Implement ReconciliationService for comparing on-chain and DB records
 - Add ReconciliationWorker with scheduled job execution
-- Create SorobanClient mock (ready for production SDK integration)
+- Create SorobanClient mock fallback and Stellar SDK-backed read path
 - Add admin API endpoints for manual trigger and status checks
 - Integrate with jobQueue for async processing and retry logic
 - Alert on critical mismatches via logging and job failure
@@ -183,7 +166,7 @@ feat(credit): chain versus DB reconciliation job
 
 ## Next Steps
 
-1. Replace MockSorobanClient with real Soroban SDK implementation
+1. Configure production Soroban RPC and contract env vars
 2. Configure production alerting (email, Slack, PagerDuty)
 3. Set up monitoring dashboards
 4. Add metrics collection for reconciliation runs

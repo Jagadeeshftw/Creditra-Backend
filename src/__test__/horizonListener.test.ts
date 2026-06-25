@@ -392,13 +392,6 @@ describe("onEvent() / clearEventHandlers()", () => {
 // pollOnce()
 // ---------------------------------------------------------------------------
 
-const baseConfig: HorizonListenerConfig = {
-  horizonUrl: "https://horizon-testnet.stellar.org",
-  contractIds: [],
-  pollIntervalMs: 5000,
-  startLedger: "latest",
-};
-
 describe("pollOnce()", () => {
 
   it("completes without throwing when contractIds is empty", async () => {

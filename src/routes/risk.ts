@@ -9,20 +9,19 @@
  * - GET  `/wallet/:walletAddress/history`     — paginated history.
  * - POST `/admin/recalibrate`                 — protected by `X-API-Key`.
  *
- * Wallet path params are validated against the Stellar pubkey regex via
- * `walletAddressParamSchema`. The provider behind these routes is
+ * Wallet path params are passed through to the risk service so missing
+ * evaluations can return domain 404s. The provider behind these routes is
  * pluggable — see `RISK_PROVIDER` and `src/services/providers/`.
  */
 import { Router, type Request, type Response } from 'express';
 import { createApiKeyMiddleware } from '../middleware/auth.js';
 import { loadApiKeys } from '../config/apiKeys.js';
-import { validateBody, validateQuery, validateParams } from '../middleware/validate.js';
+import { validateBody, validateQuery } from '../middleware/validate.js';
 import { ok, fail } from '../utils/response.js';
 import { Container } from '../container/Container.js';
 import {
   riskEvaluateSchema,
   riskHistoryQuerySchema,
-  walletAddressParamSchema,
   type RiskEvaluateBody,
   type RiskHistoryQuery,
 } from '../schemas/index.js';
@@ -66,7 +65,6 @@ riskRouter.get('/evaluations/:id', async (req: Request, res: Response): Promise<
 
 riskRouter.get(
   '/wallet/:walletAddress/latest',
-  validateParams(walletAddressParamSchema),
   async (req: Request, res: Response): Promise<void> => {
   try {
     const evaluation = await container.riskEvaluationService.getLatestRiskEvaluation(req.params.walletAddress);
@@ -84,7 +82,6 @@ riskRouter.get(
 
 riskRouter.get(
   '/wallet/:walletAddress/history',
-  validateParams(walletAddressParamSchema),
   validateQuery(riskHistoryQuerySchema),
   async (req: Request, res: Response): Promise<void> => {
     try {

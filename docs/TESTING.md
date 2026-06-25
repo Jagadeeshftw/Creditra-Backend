@@ -23,7 +23,7 @@ The backend ships with a layered test suite designed so every domain decision is
 flowchart TB
     subgraph Unit
       U1[Utils tests<br/>numbers · result · time · ...]
-      U2[Service unit tests<br/>CreditLineService · RiskEvaluationService<br/>sorobanRpcClient · drawWebhookService]
+      U2[Service unit tests<br/>CreditLineService · RiskEvaluationService<br/>sorobanClient · drawWebhookService]
       U3[Repository unit tests<br/>InMemory* + Postgres*]
       U4[Provider unit tests<br/>Rules · Static · External · factory]
       U5[Schema unit tests]
@@ -137,7 +137,7 @@ Output paths after `npm run test:coverage`:
 - The DI container makes substitution trivial: tests call `Container.getInstance().setRepositories(stubs)` to swap implementations.
 - Risk providers default to `StaticRiskProvider` in tests for determinism.
 - HTTP fakes use Supertest against the Express app — **never** the real network.
-- The Soroban client default is `MockSorobanClient`, returning empty datasets, so reconciliation tests can assert behaviour under various drift conditions by composing repository state vs mock client output.
+- Reconciliation tests normally leave `CREDIT_CONTRACT_ID` empty so `createSorobanClient()` selects `MockSorobanClient`; real Soroban read tests inject `StellarSorobanClient` with a mocked fetch implementation and contract-shaped XDR fixtures.
 
 ---
 

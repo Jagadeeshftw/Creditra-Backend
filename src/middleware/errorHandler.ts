@@ -18,18 +18,46 @@ export interface ErrorResponse {
  * In production, stack traces and internal error details are not leaked.
  */
 export function errorHandler(
-  err: Error & { status?: number; type?: string },
+  err: unknown,
   _req: Request,
   res: Response,
   _next: NextFunction,
 ): void {
+  const maybeError = err as { status?: number; type?: string };
+
   // Body-parser emits this type when the payload exceeds the configured limit.
-  if (err.type === 'entity.too.large' || err.status === 413) {
-    res
-      .status(413)
-      .json({ data: null, error: 'Request body too large. Maximum size is 100kb.' });
+  if (maybeError.type === 'entity.too.large' || maybeError.status === 413) {
+    fail(res, 'Request body too large. Maximum size is 100kb.', 413);
     return;
   }
+
+  if (err instanceof Error) {
+    console.error('[errorHandler]', {
+      message: err.message,
+      stack: err.stack,
+      name: err.name,
+    });
+
+    const status = maybeError.status ?? statusFromName(err.name);
+    fail(res, status >= 500 ? 'Internal server error' : err.message, status);
+    return;
+  }
+
   console.error('[errorHandler]', err);
-  res.status(500).json({ error: 'Internal server error' });
+  fail(res, typeof err === 'string' ? err : 'Internal server error', 500);
+}
+
+function statusFromName(name: string): number {
+  switch (name) {
+    case 'ValidationError':
+      return 400;
+    case 'UnauthorizedError':
+      return 401;
+    case 'ForbiddenError':
+      return 403;
+    case 'NotFoundError':
+      return 404;
+    default:
+      return 500;
+  }
 }

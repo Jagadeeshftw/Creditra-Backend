@@ -40,7 +40,7 @@ flowchart TB
       RCW[ReconciliationWorker]
       DWS[drawWebhookService]
       HL[horizonListener]
-      SOR[sorobanRpcClient]
+      SOR[StellarSorobanClient]
       JQ[jobQueue]
       RP[RiskProvider factory<br/>rules · static · external]
     end
