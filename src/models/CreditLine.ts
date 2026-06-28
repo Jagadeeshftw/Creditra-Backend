@@ -6,6 +6,11 @@ export interface CreditLine {
   utilized: string;
   interestRateBps: number; // Basis points (e.g., 500 = 5%)
   status: CreditLineStatus;
+  /**
+   * Optimistic-locking version. Incremented on every successful update so
+   * concurrent writers can detect lost-update conflicts. Starts at 1.
+   */
+  version?: number;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -28,4 +33,11 @@ export interface UpdateCreditLineRequest {
   interestRateBps?: number;
   status?: CreditLineStatus;
   utilized?: string;
+  /**
+   * Optimistic-locking guard. When provided, the update only succeeds if the
+   * stored {@link CreditLine.version} equals this value; otherwise the
+   * repository signals a conflict (mapped to HTTP 409). Omit to update
+   * unconditionally (last-write-wins, legacy behavior).
+   */
+  expectedVersion?: number;
 }

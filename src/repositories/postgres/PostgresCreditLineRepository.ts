@@ -1,6 +1,7 @@
 import type { CreditLine, CreateCreditLineRequest, UpdateCreditLineRequest, CreditLineStatus } from '../../models/CreditLine.js';
 import type { CreditLineRepository, CursorPaginationResult } from '../interfaces/CreditLineRepository.js';
 import type { DbClient } from '../../db/client.js';
+import { VersionConflictError } from '../../services/creditService.js';
 
 interface CreditLineRow {
   id: string;
@@ -8,6 +9,7 @@ interface CreditLineRow {
   currency: string;
   status: string;
   interest_rate_bps: number;
+  version: number;
   created_at: Date;
   updated_at: Date;
   wallet_address: string;
@@ -23,7 +25,7 @@ export class PostgresCreditLineRepository implements CreditLineRepository {
     const query = `
       INSERT INTO credit_lines (borrower_id, credit_limit, currency, status, interest_rate_bps)
       VALUES ($1, $2, $3, $4, $5)
-      RETURNING id, borrower_id, credit_limit, currency, status, interest_rate_bps, created_at, updated_at
+      RETURNING id, borrower_id, credit_limit, currency, status, interest_rate_bps, version, created_at, updated_at
     `;
 
     const values = [
@@ -42,6 +44,7 @@ export class PostgresCreditLineRepository implements CreditLineRepository {
       currency: string;
       status: string;
       interest_rate_bps: number;
+      version: number;
       created_at: Date;
       updated_at: Date;
     };
@@ -57,6 +60,7 @@ export class PostgresCreditLineRepository implements CreditLineRepository {
       utilized: '0',
       interestRateBps: row.interest_rate_bps,
       status: row.status as CreditLineStatus,
+      version: row.version,
       createdAt: row.created_at,
       updatedAt: row.updated_at
     };
@@ -70,6 +74,7 @@ export class PostgresCreditLineRepository implements CreditLineRepository {
         cl.currency,
         cl.status,
         cl.interest_rate_bps,
+        cl.version,
         cl.created_at,
         cl.updated_at,
         b.wallet_address
@@ -100,6 +105,7 @@ export class PostgresCreditLineRepository implements CreditLineRepository {
         cl.currency,
         cl.status,
         cl.interest_rate_bps,
+        cl.version,
         cl.created_at,
         cl.updated_at,
         b.wallet_address
@@ -128,6 +134,7 @@ export class PostgresCreditLineRepository implements CreditLineRepository {
         cl.currency,
         cl.status,
         cl.interest_rate_bps,
+        cl.version,
         cl.created_at,
         cl.updated_at,
         b.wallet_address
@@ -181,6 +188,7 @@ export class PostgresCreditLineRepository implements CreditLineRepository {
         cl.currency,
         cl.status,
         cl.interest_rate_bps,
+        cl.version,
         cl.created_at,
         cl.updated_at,
         b.wallet_address
@@ -239,18 +247,34 @@ export class PostgresCreditLineRepository implements CreditLineRepository {
     }
 
     setParts.push(`updated_at = now()`);
+    setParts.push(`version = version + 1`);
     values.push(id); // For WHERE clause
+    const idParam = paramIndex++;
+
+    // Optimistic locking: when expectedVersion is supplied, only update the
+    // row if its stored version still matches; a zero-row result with an
+    // existing row then signals a concurrent-write conflict (HTTP 409).
+    let versionClause = '';
+    if (request.expectedVersion !== undefined) {
+      versionClause = ` AND version = $${paramIndex++}`;
+      values.push(request.expectedVersion);
+    }
 
     const query = `
-      UPDATE credit_lines 
+      UPDATE credit_lines
       SET ${setParts.join(', ')}
-      WHERE id = $${paramIndex}
+      WHERE id = $${idParam}${versionClause}
       RETURNING id
     `;
 
     const result = await this.client.query(query, values);
-    
+
     if (result.rows.length === 0) {
+      // Distinguish "row missing" (404) from "version mismatch" (409).
+      if (request.expectedVersion !== undefined && (await this.exists(id))) {
+        const current = await this.findById(id);
+        throw new VersionConflictError(id, request.expectedVersion, current?.version ?? -1);
+      }
       return null;
     }
 
@@ -343,6 +367,7 @@ export class PostgresCreditLineRepository implements CreditLineRepository {
       utilized: this.calculateUtilized(row.credit_limit, availableCredit),
       interestRateBps: row.interest_rate_bps,
       status: row.status as CreditLineStatus,
+      version: row.version,
       createdAt: row.created_at,
       updatedAt: row.updated_at
     };

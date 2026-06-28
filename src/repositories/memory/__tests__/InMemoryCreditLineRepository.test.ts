@@ -418,10 +418,63 @@ describe('InMemoryCreditLineRepository', () => {
 
     it('should return empty result for empty repository', async () => {
       const result = await repository.findAllWithCursor(undefined, 10);
-      
+
       expect(result.items).toHaveLength(0);
       expect(result.hasMore).toBe(false);
       expect(result.nextCursor).toBeNull();
+    });
+  });
+
+  describe('optimistic locking', () => {
+    const baseRequest = {
+      walletAddress: 'GBAHQCUPC7G2B4D2F2I2K2M2O2Q2S2U2W2Y2A2C2E2G2I2K2M2O2Q2S1',
+      creditLimit: '1000.00',
+      interestRateBps: 500,
+    };
+
+    it('starts new credit lines at version 1', async () => {
+      const created = await repository.create(baseRequest);
+      expect(created.version).toBe(1);
+    });
+
+    it('increments version on every successful update', async () => {
+      const created = await repository.create(baseRequest);
+      const updated = await repository.update(created.id, { interestRateBps: 600 });
+      expect(updated?.version).toBe(2);
+      const again = await repository.update(created.id, { interestRateBps: 700 });
+      expect(again?.version).toBe(3);
+    });
+
+    it('allows a conditional update when expectedVersion matches', async () => {
+      const created = await repository.create(baseRequest);
+      const updated = await repository.update(created.id, {
+        interestRateBps: 600,
+        expectedVersion: 1,
+      });
+      expect(updated?.interestRateBps).toBe(600);
+      expect(updated?.version).toBe(2);
+    });
+
+    it('throws VersionConflictError on a stale expectedVersion (concurrent update)', async () => {
+      const created = await repository.create(baseRequest);
+      // First writer wins and advances the version to 2.
+      await repository.update(created.id, { interestRateBps: 600, expectedVersion: 1 });
+
+      // Second writer still holds the stale version 1 it originally read.
+      await expect(
+        repository.update(created.id, { interestRateBps: 999, expectedVersion: 1 }),
+      ).rejects.toMatchObject({ name: 'VersionConflictError', code: 'version_conflict' });
+
+      // The losing write did not take effect.
+      const current = await repository.findById(created.id);
+      expect(current?.interestRateBps).toBe(600);
+    });
+
+    it('updates unconditionally when expectedVersion is omitted', async () => {
+      const created = await repository.create(baseRequest);
+      const updated = await repository.update(created.id, { interestRateBps: 600 });
+      expect(updated?.interestRateBps).toBe(600);
+      expect(updated?.version).toBe(2);
     });
   });
 });

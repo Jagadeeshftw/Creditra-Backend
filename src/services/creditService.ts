@@ -138,6 +138,28 @@ export class CreditLineNotFoundError extends Error {
   }
 }
 
+/**
+ * Thrown when an optimistic-locking update fails because the stored
+ * {@link CreditLine.version} no longer matches the `expectedVersion` the
+ * caller read. Indicates a concurrent write won the race; the caller should
+ * re-read the credit line and retry with the fresh version. Mapped to HTTP
+ * `409 Conflict` (error code `version_conflict`) by `routes/credit.ts`.
+ */
+export class VersionConflictError extends Error {
+  public readonly code = 'version_conflict';
+  constructor(
+    public readonly id: string,
+    public readonly expectedVersion: number,
+    public readonly actualVersion: number,
+  ) {
+    super(
+      `Credit line "${id}" was modified concurrently ` +
+        `(expected version ${expectedVersion}, found ${actualVersion}). Re-read and retry.`,
+    );
+    this.name = 'VersionConflictError';
+  }
+}
+
 export const _store = new Map<string, CreditLine>();
 export const _transactionStore = new Map<string, Transaction[]>();
 

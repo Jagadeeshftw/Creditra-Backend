@@ -1,5 +1,6 @@
 import{ type CreditLine, type CreateCreditLineRequest, type UpdateCreditLineRequest, CreditLineStatus } from '../../models/CreditLine.js';
 import type{ CreditLineRepository, CursorPaginationResult } from '../interfaces/CreditLineRepository.js';
+import { VersionConflictError } from '../../services/creditService.js';
 import { randomUUID } from 'crypto';
 
 export class InMemoryCreditLineRepository implements CreditLineRepository {
@@ -25,6 +26,7 @@ export class InMemoryCreditLineRepository implements CreditLineRepository {
       utilized: '0',
       interestRateBps: request.interestRateBps,
       status: CreditLineStatus.ACTIVE,
+      version: 1,
       createdAt: now,
       updatedAt: now
     };
@@ -104,9 +106,20 @@ export class InMemoryCreditLineRepository implements CreditLineRepository {
       return null;
     }
 
+    const currentVersion = existing.version ?? 1;
+
+    // Optimistic locking: when the caller supplies the version it read,
+    // reject the write if another update advanced it in the meantime.
+    if (request.expectedVersion !== undefined && request.expectedVersion !== currentVersion) {
+      throw new VersionConflictError(id, request.expectedVersion, currentVersion);
+    }
+
+    const { expectedVersion: _expectedVersion, ...patch } = request;
+
     const updated: CreditLine = {
       ...existing,
-      ...request,
+      ...patch,
+      version: currentVersion + 1,
       updatedAt: new Date()
     };
 

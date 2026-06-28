@@ -94,6 +94,14 @@ components:
           type: string
           enum: [active, suspended, closed]
           description: Credit line status
+        expectedVersion:
+          type: integer
+          minimum: 1
+          description: >
+            Optimistic-locking guard. When provided, the update only succeeds
+            if it equals the stored `version`; otherwise the server returns
+            `409 Conflict`. Omit for unconditional (last-write-wins) updates.
+          example: 3
       additionalProperties: false
 
     CreditLine:
@@ -127,6 +135,14 @@ components:
           type: string
           enum: [active, suspended, closed]
           description: Current credit line status
+        version:
+          type: integer
+          minimum: 1
+          description: >
+            Optimistic-locking version, incremented on each update. Pass the
+            value you read back as `expectedVersion` on a subsequent update to
+            guard against lost writes.
+          example: 1
         createdAt:
           type: string
           format: date-time
@@ -735,6 +751,7 @@ paths:
               creditLimit: "1500.00"
               interestRateBps: 640
               status: active
+              expectedVersion: 3
       responses:
         "200":
           description: Credit line updated successfully
@@ -750,6 +767,16 @@ paths:
                 $ref: "#/components/schemas/ErrorResponse"
         "404":
           description: Credit line not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: >
+            Optimistic-locking conflict. The supplied `expectedVersion` did not
+            match the stored `version`, meaning a concurrent update won the
+            race. Re-read the credit line to get the current `version` and
+            retry the update with it.
           content:
             application/json:
               schema:

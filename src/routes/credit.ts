@@ -36,6 +36,7 @@ import { ok, fail } from '../utils/response.js';
 import {
   CreditLineNotFoundError,
   InvalidTransitionError,
+  VersionConflictError,
   TransactionType,
   suspendCreditLine,
   closeCreditLine,
@@ -66,6 +67,10 @@ function handleServiceError(err: unknown, res: Response): void {
     return;
   }
   if (err instanceof InvalidTransitionError) {
+    fail(res, err.message, 409);
+    return;
+  }
+  if (err instanceof VersionConflictError) {
     fail(res, err.message, 409);
     return;
   }
@@ -143,17 +148,22 @@ creditRouter.post('/lines', validateBody(createCreditLineSchema), async (req, re
 
 creditRouter.put('/lines/:id', async (req, res) => {
   try {
-    const { creditLimit, interestRateBps, status } = req.body;
+    const { creditLimit, interestRateBps, status, expectedVersion } = req.body;
     const creditLine = await container.creditLineService.updateCreditLine(req.params.id, {
       creditLimit,
       interestRateBps,
       status,
+      expectedVersion,
     });
     if (!creditLine) {
       return fail(res, 'Credit line not found', 404);
     }
     return ok(res, creditLine);
   } catch (error) {
+    // Optimistic-locking conflicts surface as 409; other validation as 400.
+    if (error instanceof VersionConflictError) {
+      return handleServiceError(error, res);
+    }
     return fail(res, error instanceof Error ? error : undefined, 400);
   }
 });

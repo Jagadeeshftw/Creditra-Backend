@@ -40,6 +40,7 @@ describe('PostgresCreditLineRepository', () => {
             currency: 'USDC',
             status: 'active',
             interest_rate_bps: 500,
+            version: 1,
             created_at: now,
             updated_at: now
           }]
@@ -63,6 +64,7 @@ describe('PostgresCreditLineRepository', () => {
         utilized: '0',
         interestRateBps: 500,
         status: CreditLineStatus.ACTIVE,
+        version: 1,
         createdAt: now,
         updatedAt: now
       });
@@ -87,6 +89,7 @@ describe('PostgresCreditLineRepository', () => {
             currency: 'USDC',
             status: 'active',
             interest_rate_bps: 750,
+            version: 1,
             created_at: now,
             updated_at: now
           }]
@@ -120,6 +123,7 @@ describe('PostgresCreditLineRepository', () => {
             currency: 'USDC',
             status: 'active',
             interest_rate_bps: 600,
+            version: 1,
             created_at: now,
             updated_at: now,
             wallet_address: 'GTEST789'
@@ -136,6 +140,7 @@ describe('PostgresCreditLineRepository', () => {
         utilized: '0',
         interestRateBps: 600,
         status: CreditLineStatus.ACTIVE,
+        version: 1,
         createdAt: now,
         updatedAt: now
       });
